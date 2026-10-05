@@ -202,8 +202,8 @@ def test_result_and_execution_boundaries_refuse_without_partial_result(
 
 
 def test_result_byte_bound_is_enforced_for_complete_result() -> None:
-    columns = ", ".join(f"customer || '{'x' * 251}' AS c{i}" for i in range(16))
-    _assert_failure(f"SELECT {columns} FROM sales ORDER BY sale_id", "result_limit", 5)
+    columns = ", ".join(f"customer || '{'x' * 244}' AS c{i}" for i in range(16))
+    _assert_failure(f"SELECT {columns} FROM sales ORDER BY sale_id", "result_limit", 6)
 
 
 def test_more_than_sixteen_result_columns_is_refused() -> None:
