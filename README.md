@@ -85,8 +85,13 @@ adapter validates version-1 requests and exact typed results, including hashes,
 cell encoding, the complete 16,384-byte result envelope and explicit runtime
 provenance. Local parity
 tests execute the existing engine; deployed service execution remains unverified.
-The Python service transport, full profiling, support retrieval,
-analytical/citation validation, persistence,
+The private Python Worker now routes GET `/health`, GET `/metadata`, and bounded
+POST `/query` over a service binding. Health probes the SQLite policy, metadata
+returns the pinned sales source and field meanings, and query executes only the
+approved fixture with typed receipts and safe error codes. The Worker rejects
+oversized streamed bodies before JSON parsing; no public route is configured.
+Local service tests pass, but deployed service-binding behavior remains unverified.
+Full profiling, support retrieval, analytical/citation validation, persistence,
 model calls, UI and deployment remain planned. Cloudflare Python/SQLite
 compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for
 the next bounded capability. Full GO permits
@@ -97,10 +102,9 @@ Cloudflare's current Pywrangler packaging while the analytical package supports
 Python >=3.12. It declares the local analytical package and Cloudflare Worker
 tooling in its own `pyproject.toml` and `uv.lock`, disables public Worker URLs and
 preview URLs,
-and reads its own version-metadata binding and injected `BUILD_REVISION`. Until
-the reviewed service routes are added, it answers 404 after valid provenance or
-503 when deployed provenance is missing. No query route or deployed SQL proof is
-provided by this scaffold.
+and reads its own version-metadata binding and injected `BUILD_REVISION`. Unknown
+routes answer 404; missing deployed provenance answers 503. The private query
+route is locally verified only and has no Agent caller or deployed SQL proof yet.
 
 From a **clean committed checkout** with the locked Worker dev tools installed,
 run `make python-worker-dry-run` to package without uploading. The helper refuses

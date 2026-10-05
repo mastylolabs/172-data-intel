@@ -21,10 +21,25 @@ from data_intel._bounded_result import Cell
 from data_intel._sqlite_policy import _LIMITS
 from data_intel.contracts import SourceIdentity, SqlIntent
 from data_intel.query_engine import QueryEngine
+from data_intel.sales_fixture import SalesProfile
 
 Digest = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{64}$")]
 BuildRevision = Annotated[str, StringConstraints(strict=True, pattern=r"^[a-f0-9]{40}$")]
 RuntimeMode = Literal["local", "deployed"]
+ServiceErrorCode = Literal[
+    "invalid_input",
+    "unsupported_version",
+    "not_found",
+    "unsupported_transport",
+    "unsafe_query",
+    "invalid_query",
+    "execution_limit",
+    "invalid_result",
+    "result_limit",
+    "runtime_incompatible",
+    "unsupported_source",
+    "source_mismatch",
+]
 
 
 class StrictModel(BaseModel):
@@ -97,6 +112,42 @@ class QueryServiceRequest(StrictModel):
         except UnicodeEncodeError:
             raise ValueError("invalid_input") from None
         return self
+
+
+class ServiceHealth(RuntimeInfo):
+    version: Literal["1"]
+    engine_policy: Literal["m2-sqlite.v1"]
+
+
+class MetadataField(StrictModel):
+    name: str = Field(min_length=1, max_length=64)
+    sql_type: Literal["TEXT", "INTEGER"]
+    nullable: Literal[False]
+    meaning: str = Field(min_length=1, max_length=256)
+
+
+class ServiceMetadata(StrictModel):
+    version: Literal["1"]
+    source: SourceIdentity
+    schema_revision: Literal["sales-proof.v1"]
+    table: Literal["sales"]
+    fields: list[MetadataField] = Field(min_length=7, max_length=7)
+    profile: SalesProfile
+    capabilities: list[Literal["query"]] = Field(min_length=1, max_length=1)
+    dialect: Literal["sqlite"]
+    engine_policy: Literal["m2-sqlite.v1"]
+    limits: "QueryLimits"
+    runtime: RuntimeInfo
+
+
+class ServiceError(StrictModel):
+    version: Literal["1"] = "1"
+    code: ServiceErrorCode
+    stage: Literal["input", "query", "transport"]
+    job_id: UUID | None = None
+    limit: None = None
+    provider_reason: None = None
+    automatic_retry: Literal[False] = False
 
 
 class IntegerCell(StrictModel):
