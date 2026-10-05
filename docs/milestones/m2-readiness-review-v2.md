@@ -7,10 +7,10 @@
 - **Matrix artifact:** M2-READY-v2, 2026-10-05. Preserves [M2-READY-v1](m2-readiness-review.md) as historical; this review supersedes it for the current source bundle and P2/P3/P4 mapping.
 - **Authoritative brief:** M2-BRIEF-v2, `archive/m2-ready-v2/m2-runtime-brief.md`, SHA256 `ad8af71f3470aea58a9fe5b2d801354b6a87225cfd3cf54d0d555fbc15dd4fa4`.
 - **UX:** M2-UX-v4, `archive/m2-ready-v2/m2-proof-experience.md`, SHA256 `05672c4191bc0b72af55ed3ec68818d88cb2959334a997d0755a3290190ff90a`.
-- **Architecture:** M2-ARCH-v3, `archive/m2-ready-v2/m2-runtime-contracts.md`, SHA256 `ddfb5fbb1aedae396a6434fc0c42ebf433280c548ea6b0ff6c684a800c1d3c21`.
+- **Architecture:** M2-ARCH-v3, [immutable source at `fd7e3f2`](https://github.com/mastylolabs/172-data-intel/blob/fd7e3f2e3e551197d60b469defcbfea38dd9fcde/docs/milestones/m2-runtime-contracts.md), SHA256 `ddfb5fbb1aedae396a6434fc0c42ebf433280c548ea6b0ff6c684a800c1d3c21`.
 - **Threat/control:** M2-THREAT-v3, `archive/m2-ready-v2/m2-threat-controls.md`, SHA256 `b7a1e1e4615f0b2f3915173dc59ce33f08f28441627aeeb924bddaa96b6ac146`.
 - **Infrastructure:** M2-INFRA-v5, `archive/m2-ready-v2/m2-infrastructure-assessment.md`, SHA256 `9efcfadddef3f1f91789f69eaf7736dab737ebae5f425537252fd68a2be34bc7`.
-- **Preserved architecture:** `archive/m2-ready-v2/architecture.md`, SHA256 `2046e837044efad2737cae080c011ae9c2d0f809302a7d9505749f973cf4d9dd`.
+- **Preserved architecture:** [immutable source at base revision `6b76060`](https://github.com/mastylolabs/172-data-intel/blob/6b76060e857cd0185b0d191fc12cbaec0a3d6fc2/docs/architecture.md), SHA256 `2046e837044efad2737cae080c011ae9c2d0f809302a7d9505749f973cf4d9dd`.
 - **Snapshot manifest:** [`archive/m2-ready-v2/README.md`](archive/m2-ready-v2/README.md) records each byte-for-byte source copy and its verified SHA256.
 - **Authority/state:** User's full GO is recorded in `PROMPTS.md` and `docs/mvp-delivery-plan.md`; M2 prebuild returns were 0/2 before this independent review. AC-M2-01–07 all remain **unverified**.
 - **Review scope:** Current design compatibility and sequencing only. No runtime certification, control implementation evidence, security certification, QA pass, provider approval, merge, or deployment is claimed.
