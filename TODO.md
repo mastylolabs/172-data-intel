@@ -13,9 +13,13 @@
   A private bounded-result foundation normalizes fetched scalar rows and hashes
   canonical content. A private SQLite query engine now executes generic bounded,
   read-only sales SQL in a fresh source-verified database and returns an explicitly
-  unvalidated result; it is not connected to a service. Next: provenance receipts
-  and the private Python adapter, then deployed native Agent → Python engine → Llama 3.3 proof with
-  persistent isolated state. Target-runtime compatibility remains unverified. A
+  unvalidated result. The first P2 slice adds a typed private Python service
+  request/result adapter with exact cells, result hashes, policy limits, and
+  explicit runtime provenance validation; it has local parity tests but no
+  service transport. Next: the private Python Worker manifest/build boundary,
+  then a reviewed native Agent bridge for deployed SQL/control receipts, followed
+  by Llama 3.3 integration with persistent isolated state. Target-runtime
+  compatibility remains unverified. A
   bounded Llama access preflight failed with daily free allocation rejection; real
   AI proof remains pending. Continue independent work from stable merged contracts;
   no billing change or false live-success claim.
