@@ -1,10 +1,13 @@
 """Real SQLite acceptance cases for the private query-engine boundary."""
 
+import sqlite3
 from hashlib import sha256
 from unittest.mock import Mock
 
 import pytest
 
+import data_intel.query_engine as query_engine
+from data_intel._sales_context import _sales_context
 from data_intel._sqlite_policy import PolicyFailure
 from data_intel.contracts import SourceId, SourceIdentity, SqlIntent
 from data_intel.query_engine import QueryExecutionResult, QueryFailure, SQLiteQueryEngine
@@ -111,6 +114,17 @@ def test_policy_failure_maps_safely_before_sql_dispatch(monkeypatch: pytest.Monk
     monkeypatch.setattr("data_intel.query_engine._sales_context", Mock(side_effect=PolicyFailure()))
     monkeypatch.setattr("data_intel.query_engine._execute_in_context", pytest.fail)
     _assert_failure(_intent("SELECT sum(units) FROM sales"), "runtime_incompatible")
+
+
+def test_sqlite_nomem_maps_safely_and_missing_codes_remain_safe() -> None:
+    with _sales_context(SALES_SOURCE) as context:
+        error = sqlite3.OperationalError("private memory diagnostic")
+        error.sqlite_errorcode = sqlite3.SQLITE_NOMEM | 1 << 8
+        failure = query_engine._sqlite_failure(error, context)
+        assert (failure.code, str(failure)) == ("execution_limit", "execution_limit")
+        missing = sqlite3.ProgrammingError("private sqlite diagnostic")
+        failure = query_engine._sqlite_failure(missing, context)
+        assert (failure.code, str(failure)) == ("invalid_query", "invalid_query")
 
 
 @pytest.mark.parametrize(

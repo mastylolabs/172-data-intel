@@ -83,8 +83,11 @@ def _fixture_failure(error: FixtureError, source: SourceIdentity) -> QueryFailur
 
 
 def _sqlite_failure(error: sqlite3.Error, context: _SalesContext) -> QueryFailure:
+    error_code = getattr(error, "sqlite_errorcode", None)
     if context._policy.progress.reason is not None:
         code: QueryErrorCode = "execution_limit"
+    elif isinstance(error_code, int) and error_code & 0xFF == sqlite3.SQLITE_NOMEM:
+        code = "execution_limit"
     elif context._policy.audit.denied:
         code = "unsafe_query"
     elif "too many columns" in str(error).lower():
