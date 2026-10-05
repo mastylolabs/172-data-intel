@@ -37,13 +37,7 @@ def _request(sql: str = SQL, max_rows: int = 20) -> QueryServiceRequest:
 
 
 def _runtime() -> RuntimeInfo:
-    return RuntimeInfo(
-        python_version="3.12.7",
-        sqlite_version="3.46.1",
-        runtime_mode="local",
-        build_revision=None,
-        worker_version_id=None,
-    )
+    return runtime_info_from_bindings("local", None, None, "3.12.7", "3.46.1")
 
 
 @pytest.mark.parametrize("field,value", [("version", "2"), ("job_id", "bad"), ("extra", True)])
@@ -102,6 +96,16 @@ def test_result_rejects_fabricated_policy_and_cells() -> None:
         QueryResult.model_validate_json(json.dumps(payload))
 
 
+def test_result_refuses_complete_wire_payload_above_declared_limit() -> None:
+    wide_text = "x" * 120
+    wide_sql = "SELECT sale_id, " + ", ".join(f"'{wide_text}' AS c{i}" for i in range(15))
+    request = _request(wide_sql + " FROM main.sales")
+    engine = SQLiteQueryEngine()
+    assert len(engine.execute(request.intent).content.content_bytes) < 16_384
+    with pytest.raises(ValidationError, match="result_limit"):
+        adapt_query(request, engine, _runtime())
+
+
 def test_deployed_runtime_requires_binding_uuid_and_committed_revision() -> None:
     revision = "ef8eac322f95580c5c717cdef2c9eabdf7f55ff2"
     worker_id = "fe864d4b-909b-4016-8aa0-4d5cc2f499c0"
@@ -110,7 +114,3 @@ def test_deployed_runtime_requires_binding_uuid_and_committed_revision() -> None
     for bad_revision, bad_id in ((None, worker_id), ("unknown", worker_id), (revision, None)):
         with pytest.raises(RuntimeProvenanceError, match="runtime_incompatible"):
             runtime_info_from_bindings("deployed", bad_revision, bad_id, "3.14.2", "3.50.4")
-    assert (
-        runtime_info_from_bindings("local", None, None, "3.12.7", "3.46.1").worker_version_id
-        is None
-    )

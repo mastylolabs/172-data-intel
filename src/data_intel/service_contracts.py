@@ -227,7 +227,7 @@ class QueryResult(StrictModel):
         except UnicodeError:
             raise ValueError("invalid_result") from None
         result_bytes = _canonical_result_bytes(self.columns, self.rows)
-        if len(sql_bytes) > 8_000 or len(result_bytes) > 16_384:
+        if len(sql_bytes) > 8_000 or len(self.model_dump_json().encode("utf-8")) > 16_384:
             raise ValueError("result_limit")
         if sha256(sql_bytes).hexdigest() != self.sql_sha256:
             raise ValueError("invalid_result")

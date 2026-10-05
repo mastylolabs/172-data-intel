@@ -82,7 +82,8 @@ returns only fixed safe error codes. Ambiguous empty-column reads do not prove a
 physical source, so bare `count(*)` queries must use `main.sales`; CTEs named
 `sales` cannot satisfy source authorization. The private `service_contracts.py`
 adapter validates version-1 requests and exact typed results, including hashes,
-cell encoding, declared limits and explicit runtime provenance. Local parity
+cell encoding, the complete 16,384-byte result envelope and explicit runtime
+provenance. Local parity
 tests execute the existing engine; deployed service execution remains unverified.
 The Python service transport, full profiling, support retrieval,
 analytical/citation validation, persistence,
