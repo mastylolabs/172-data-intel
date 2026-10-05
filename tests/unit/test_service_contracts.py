@@ -84,22 +84,22 @@ def test_adapter_executes_real_engine_and_preserves_exact_cell_types() -> None:
 def test_result_rejects_fabricated_hash_and_shape(field: str, value: object) -> None:
     payload = json.loads(adapt_query(_request(), SQLiteQueryEngine(), _runtime()).model_dump_json())
     payload[field] = value
-    with pytest.raises(ValidationError):
-        QueryResult.model_validate(payload)
+    with pytest.raises(ValidationError, match="invalid_result"):
+        QueryResult.model_validate_json(json.dumps(payload))
 
 
 def test_result_rejects_fabricated_policy_and_cells() -> None:
     payload = json.loads(adapt_query(_request(), SQLiteQueryEngine(), _runtime()).model_dump_json())
     payload["limits"]["sqlite_limits"] = {}
-    with pytest.raises(ValidationError):
-        QueryResult.model_validate(payload)
+    with pytest.raises(ValidationError, match="invalid_result"):
+        QueryResult.model_validate_json(json.dumps(payload))
     payload = json.loads(adapt_query(_request(), SQLiteQueryEngine(), _runtime()).model_dump_json())
     payload["rows"][0][0]["value"] = "9223372036854775808"
-    with pytest.raises(ValidationError):
-        QueryResult.model_validate(payload)
+    with pytest.raises(ValidationError, match="invalid_result"):
+        QueryResult.model_validate_json(json.dumps(payload))
     payload["rows"][0][1]["value"] = "nan"
-    with pytest.raises(ValidationError):
-        QueryResult.model_validate(payload)
+    with pytest.raises(ValidationError, match="invalid_result"):
+        QueryResult.model_validate_json(json.dumps(payload))
 
 
 def test_deployed_runtime_requires_binding_uuid_and_committed_revision() -> None:
