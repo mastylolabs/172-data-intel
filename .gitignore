@@ -1,0 +1,182 @@
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Python packaging and build output
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+.installed.cfg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version.local
+
+# -----------------------------------------------------------------------------
+# JavaScript / TypeScript / frontend tooling
+# -----------------------------------------------------------------------------
+**/node_modules/
+**/.pnpm-store/
+**/.npm/
+**/.yarn/
+**/.parcel-cache/
+**/.vite/
+**/.next/
+**/.nuxt/
+**/.svelte-kit/
+**/.turbo/
+**/storybook-static/
+
+# MkDocs output (the private manual source remains tracked).
+docs/172x-manual/site/
+
+# Frontend build and test output
+**/coverage/
+**/playwright-report/
+**/test-results/
+**/cypress/videos/
+**/cypress/screenshots/
+**/.eslintcache
+
+# -----------------------------------------------------------------------------
+# uv, test, lint, type-check, and coverage caches
+# -----------------------------------------------------------------------------
+.uv/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.cache/
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.dmypy.json
+dmypy.json
+htmlcov/
+nosetests.xml
+
+# Keep uv.lock files trackable. They are part of each deployable's contract.
+
+# -----------------------------------------------------------------------------
+# Local configuration and secrets
+# -----------------------------------------------------------------------------
+.env
+.env.*
+*.env
+!**/.env.example
+!**/.env.*.example
+.envrc
+**/.dev.vars
+**/.dev.vars.*
+!**/.dev.vars.example
+**/*.local.xcconfig
+*.local
+.secrets.baseline
+
+# -----------------------------------------------------------------------------
+# Runtime state and local-only application data
+# -----------------------------------------------------------------------------
+**/data/
+**/artifacts/
+**/tmp/
+**/.tmp/
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
+*.db-shm
+*.db-wal
+
+# The root 172X public-source catalog is reviewed configuration, not runtime data.
+!data/
+!data/job-boards
+!data/job-newsletters
+!data/vc-fellowships-talent-networks
+
+# Logs and transient files
+*.log
+logs/
+*.pid
+*.seed
+*.swp
+*.swo
+*.swn
+*.tmp
+*.bak
+
+# -----------------------------------------------------------------------------
+# Cloudflare, Render, infrastructure, and local deployment state
+# -----------------------------------------------------------------------------
+**/.wrangler/
+**/.mf/
+**/.vercel/
+**/.render/
+.terraform/
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# -----------------------------------------------------------------------------
+# Secrets, credentials, and signing material
+# -----------------------------------------------------------------------------
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.secret
+credentials.json
+service-account*.json
+
+# -----------------------------------------------------------------------------
+# Editors and operating systems
+# -----------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode local user state
+**/xcuserdata/
+*.xcuserstate
+
+.idea/
+.vscode/
+*.iml
+*.sublime-workspace
+*.sublime-project
+.ipynb_checkpoints/
+
+# Local Docker / compose overrides
+docker-compose.override.yml
+docker-compose.override.yaml
+
+# .private folder
+.private/
+
