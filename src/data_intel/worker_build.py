@@ -26,17 +26,27 @@ def _committed_revision() -> str:
     return revision
 
 
+def _source_matches(vendored: Path) -> bool:
+    source_root = REPO_ROOT / "src" / "data_intel"
+    for source in source_root.rglob("*.py"):
+        target = vendored / source.relative_to(source_root)
+        if not target.is_file() or target.read_bytes() != source.read_bytes():
+            return False
+    return True
+
+
 def _complete_bundle(outdir: Path) -> bool:
     modules = outdir / "python_modules"
     required = (
         outdir / "index.py",
-        modules / "data_intel" / "__init__.py",
         modules / "workers" / "__init__.py",
         modules / "pydantic" / "__init__.py",
         modules / "pydantic_core" / "__init__.py",
     )
-    return all(path.is_file() for path in required) and any(
-        (modules / "pydantic_core").glob("_pydantic_core*.so")
+    return (
+        all(path.is_file() for path in required)
+        and any((modules / "pydantic_core").glob("_pydantic_core*.so"))
+        and _source_matches(modules / "data_intel")
     )
 
 
@@ -48,6 +58,11 @@ def _dry_run(revision: str, outdir: Path) -> int:
     )
     if install.returncode:
         return install.returncode
+    sync = subprocess.run(
+        ["uv", "run", "--locked", "pywrangler", "sync", "--force"], check=False, cwd=WORKER_DIR
+    )
+    if sync.returncode:
+        return sync.returncode
     return subprocess.run(
         [
             "uv",
@@ -64,6 +79,33 @@ def _dry_run(revision: str, outdir: Path) -> int:
         check=False,
         cwd=WORKER_DIR,
     ).returncode
+
+
+def _post_build_status(
+    revision: str, runtime_lock: Path, locked_bytes: bytes, result: int, complete: bool
+) -> int:
+    try:
+        lock_unchanged = runtime_lock.read_bytes() == locked_bytes
+    except OSError:
+        print("Worker runtime lock unavailable after build", file=sys.stderr)
+        return 2
+    if not lock_unchanged:
+        print("Worker runtime lock changed during build", file=sys.stderr)
+        return 2
+    if result:
+        return result
+    if not complete:
+        print("Worker dry-run bundle missing required Python modules", file=sys.stderr)
+        return 2
+    try:
+        final_revision = _committed_revision()
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        print("Worker checkout changed during build", file=sys.stderr)
+        return 2
+    if final_revision != revision:
+        print("Worker revision changed during build", file=sys.stderr)
+        return 2
+    return 0
 
 
 def main() -> int:
@@ -86,19 +128,7 @@ def main() -> int:
     except OSError:
         print("Worker build tool unavailable", file=sys.stderr)
         return 2
-    try:
-        if runtime_lock.read_bytes() != locked_bytes:
-            print("Worker runtime lock changed during build", file=sys.stderr)
-            return 2
-    except OSError:
-        print("Worker runtime lock unavailable after build", file=sys.stderr)
-        return 2
-    if result:
-        return result
-    if not complete:
-        print("Worker dry-run bundle missing required Python modules", file=sys.stderr)
-        return 2
-    return 0
+    return _post_build_status(revision, runtime_lock, locked_bytes, result, complete)
 
 
 if __name__ == "__main__":
