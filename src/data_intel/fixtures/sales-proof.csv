@@ -1,0 +1,7 @@
+sale_id,sale_date,customer,region,product,units,revenue_cents
+S001,2026-01-02,Acme,North,Core,2,20000
+S002,2026-01-14,Bright,South,Core,3,45000
+S003,2026-01-31,Acme,North,Plus,-1,-5000
+S004,2026-02-01,Acme,North,Core,4,40000
+S005,2026-02-15,Bright,South,Plus,2,30000
+S006,2026-02-28,Cedar,East,Core,0,0
