@@ -16,8 +16,11 @@
   unvalidated result. The first P2 slice adds a typed private Python service
   request/result adapter with exact cells, result hashes, policy limits, and
   explicit runtime provenance validation; it has local parity tests but no
-  service transport. Next: the private Python Worker manifest/build boundary,
-  then a reviewed native Agent bridge for deployed SQL/control receipts, followed
+  service transport. The second P2 slice adds a private Python Worker manifest,
+  provenance fence, and clean-revision dry-run helper. Pywrangler is absent in
+  this environment, so packaging and target-runtime compatibility remain
+  unverified. Next: obtain a reviewed private build, then a reviewed native Agent
+  bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A
   bounded Llama access preflight failed with daily free allocation rejection; real

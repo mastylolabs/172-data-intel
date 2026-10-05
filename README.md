@@ -91,3 +91,20 @@ model calls, UI and deployment remain planned. Cloudflare Python/SQLite
 compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for
 the next bounded capability. Full GO permits
 continuing the approved milestones; each retains its report and independent gates.
+
+The private Python Worker scaffold in `workers/tools/` uses Python >=3.13 for
+Cloudflare's current Pywrangler packaging while the analytical package supports
+Python >=3.12. It declares the local analytical package and Cloudflare Worker
+tooling in its own `pyproject.toml` and `uv.lock`, disables public Worker URLs and
+preview URLs,
+and reads its own version-metadata binding and injected `BUILD_REVISION`. Until
+the reviewed service routes are added, it answers 404 after valid provenance or
+503 when deployed provenance is missing. No query route or deployed SQL proof is
+provided by this scaffold.
+
+From a **clean committed checkout** with Pywrangler already available, run
+`make python-worker-dry-run` to package without uploading. The helper refuses
+dirty/untracked source, uses the frozen Worker lock, and passes the exact checkout
+revision as `BUILD_REVISION`.
+The private build and target-runtime controls still need an actual Pywrangler
+dry run and later deployed probe; local config/mocked tests do not establish them.
