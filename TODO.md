@@ -17,13 +17,12 @@
   request/result adapter with exact cells, result hashes, policy limits, and
   explicit runtime provenance validation; it has local parity tests but no
   service transport. The second P2 slice adds a private Python Worker manifest,
-  provenance fence, and clean-revision dry-run helper. Pywrangler is absent in
-  this environment, so packaging and target-runtime compatibility remain
-  unverified. Before claiming a reproducible private build, generate and review
-  Pywrangler's separate Pyodide `pylock.toml` and pin/verify the Wrangler binary;
-  the host `uv.lock` alone does not cover either. Next: obtain a reviewed private
-  build, then a reviewed native Agent
-  bridge for deployed SQL/control receipts, followed
+  provenance fence, and clean-revision dry-run helper. A local Pywrangler 1.17.6
+  / npx Wrangler 4.11.1 dry-run succeeded without upload, and its generated
+  Pyodide `pylock.toml` is tracked. The helper now refuses lock regeneration.
+  Wrangler remains unpinned by the host `uv.lock`; pin and verify it before
+  claiming cross-environment reproducibility. Next: review the private build,
+  then a reviewed native Agent bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A
   bounded Llama access preflight failed with daily free allocation rejection; real

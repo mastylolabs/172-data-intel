@@ -31,6 +31,12 @@ def main() -> int:
     except (OSError, subprocess.CalledProcessError, ValueError) as error:
         print(f"Worker build refused: {error}", file=sys.stderr)
         return 2
+    runtime_lock = WORKER_DIR / "pylock.toml"
+    try:
+        locked_bytes = runtime_lock.read_bytes()
+    except OSError:
+        print("Worker runtime lock unavailable", file=sys.stderr)
+        return 2
     command = [
         "uv",
         "run",
@@ -42,10 +48,18 @@ def main() -> int:
         f"BUILD_REVISION:{revision}",
     ]
     try:
-        return subprocess.run(command, check=False, cwd=WORKER_DIR).returncode
+        result = subprocess.run(command, check=False, cwd=WORKER_DIR)
     except OSError:
         print("Worker build tool unavailable", file=sys.stderr)
         return 2
+    try:
+        if runtime_lock.read_bytes() != locked_bytes:
+            print("Worker runtime lock changed during build", file=sys.stderr)
+            return 2
+    except OSError:
+        print("Worker runtime lock unavailable after build", file=sys.stderr)
+        return 2
+    return result.returncode
 
 
 if __name__ == "__main__":

@@ -106,3 +106,31 @@ def test_missing_build_tool_returns_safe_failure(
 
     assert build_python_worker.main() == 2
     assert capsys.readouterr().err == "Worker build tool unavailable\n"
+
+
+def test_runtime_lock_mutation_refuses_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    runtime_lock = tmp_path / "pylock.toml"
+    runtime_lock.write_text("reviewed")
+
+    def mutate(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        runtime_lock.write_text("regenerated")
+        return subprocess.CompletedProcess([], 0)
+
+    monkeypatch.setattr(build_python_worker, "WORKER_DIR", tmp_path)
+    monkeypatch.setattr(build_python_worker, "_committed_revision", lambda: "a" * 40)
+    monkeypatch.setattr(subprocess, "run", mutate)
+
+    assert build_python_worker.main() == 2
+    assert capsys.readouterr().err == "Worker runtime lock changed during build\n"
+
+
+def test_missing_runtime_lock_refuses_before_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(build_python_worker, "WORKER_DIR", tmp_path)
+    monkeypatch.setattr(build_python_worker, "_committed_revision", lambda: "a" * 40)
+
+    assert build_python_worker.main() == 2
+    assert capsys.readouterr().err == "Worker runtime lock unavailable\n"

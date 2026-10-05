@@ -102,14 +102,11 @@ the reviewed service routes are added, it answers 404 after valid provenance or
 503 when deployed provenance is missing. No query route or deployed SQL proof is
 provided by this scaffold.
 
-From a **clean committed checkout** with Pywrangler already available, run
-`make python-worker-dry-run` to package without uploading. The helper refuses
-dirty/untracked source, uses the frozen host-side `uv.lock`, and passes the exact checkout
-revision as `BUILD_REVISION`. It runs Pywrangler from `workers/tools/` so the
-Worker's Wrangler config is the build target.
-Pywrangler generates a separate Pyodide `pylock.toml` during sync and proxies to
-Wrangler through `npx`; neither the runtime lock nor Wrangler binary is pinned
-or validated in this slice. Review those artifacts before treating a build as
-reproducible. The private build and target-runtime controls still need an actual
-Pywrangler dry run and later deployed probe; local config/mocked tests do not
-establish them.
+From a **clean committed checkout** with the locked Worker dev tools installed,
+run `make python-worker-dry-run` to package without uploading. The helper refuses
+dirty/untracked source, passes the exact checkout revision as `BUILD_REVISION`,
+and runs Pywrangler from `workers/tools/` against its Wrangler config. It also
+requires the reviewed Pyodide `pylock.toml` and fails if Pywrangler regenerates it.
+A local dry-run succeeded with Pywrangler 1.17.6 and npx Wrangler 4.11.1; this
+establishes packaging in that environment only. Wrangler is not pinned by the
+host `uv.lock`, and deployed runtime controls still need a reviewed probe.
