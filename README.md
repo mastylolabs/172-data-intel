@@ -70,8 +70,12 @@ then installs the private read-only, authorizer, limit and progress controls. It
 context manager closes the owned connection after success or failure; tests verify
 source metadata, exact fixture rows and independently known SQL totals. SQLite
 connection or setup errors fail as the safe `runtime_incompatible` classification.
-The generic query executor, full profiling, support retrieval, numerical/citation
-validation, persistence, model calls, UI and deployment remain planned. Cloudflare
+The private `_bounded_result.py` foundation validates already-fetched scalar rows,
+converts them to immutable exact cell values, and computes bounded canonical JSON
+and SHA-256 content. It does not execute SQL, create receipts, or serve external
+callers. The generic query executor, full profiling, support retrieval,
+numerical/citation validation, persistence, model calls, UI and deployment remain
+planned. Cloudflare
 Python/SQLite compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for the
 next bounded capability. Full GO permits
 continuing the approved milestones; each retains its report and independent gates.

@@ -10,6 +10,8 @@
   foundation installs locally tested read-only controls, limits, authorization and
   progress bounds. The source-bound context opens a fresh in-memory database from
   loader-verified rows, installs policy after loading and closes on all context exits.
+  A private bounded-result foundation normalizes fetched scalar rows and hashes
+  canonical content; it is not yet called by SQL execution or an external service.
   Generic bounded SQL execution remains pending. Next: query execution, then private
   Python adapter and deployed native Agent → Python engine → Llama 3.3 proof with
   persistent isolated state. Target-runtime compatibility remains unverified. A
