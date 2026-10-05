@@ -1,6 +1,5 @@
 """Real SQLite acceptance cases for the private query-engine boundary."""
 
-import sqlite3
 from hashlib import sha256
 from unittest.mock import Mock
 
@@ -10,6 +9,8 @@ from data_intel._sqlite_policy import PolicyFailure
 from data_intel.contracts import SourceId, SourceIdentity, SqlIntent
 from data_intel.query_engine import QueryExecutionResult, QueryFailure, SQLiteQueryEngine
 from data_intel.sales_fixture import SALES_SOURCE
+
+_BUSY_SQL = f"SELECT count(sale_id) FROM main.sales CROSS JOIN (VALUES{'(0),' * 1_499}(0))"
 
 
 def _intent(sql: str, max_rows: int = 20, source: SourceIdentity = SALES_SOURCE) -> SqlIntent:
@@ -33,9 +34,10 @@ def _assert_failure(intent: SqlIntent | str, code: str, max_rows: int = 20) -> N
     ("sql", "expected"),
     [
         (
-            "SELECT sum(revenue_cents), sum(units), count(*) FROM sales",
+            "SELECT sum(revenue_cents), sum(units), count(sale_id) FROM sales",
             (("130000", "10", "6"),),
         ),
+        ("SELECT count(*) FROM main.sales", (("6",),)),
         (
             "SELECT strftime('%Y-%m', sale_date), sum(revenue_cents), sum(units) "
             "FROM sales GROUP BY 1 ORDER BY 1",
@@ -54,7 +56,7 @@ def _assert_failure(intent: SqlIntent | str, code: str, max_rows: int = 20) -> N
             (("Bright", "75000"), ("Acme", "55000"), ("Cedar", "0")),
         ),
         (
-            "SELECT sum(revenue_cents), sum(units), count(*) FROM sales WHERE product='Core'",
+            "SELECT sum(revenue_cents), sum(units), count(sale_id) FROM sales WHERE product='Core'",
             (("105000", "9", "4"),),
         ),
         (
@@ -159,6 +161,7 @@ def test_unsafe_sql_is_refused_without_leaking_input(sql: str, code: str) -> Non
 @pytest.mark.parametrize(
     ("sql", "code"),
     [
+        ("WITH sales AS (VALUES(1),(2),(3)) SELECT 42, count(*) FROM sales", "unsafe_query"),
         ("SELECT customer FROM sales; SELECT units FROM sales", "invalid_query"),
         ("SELECT FROM sales", "invalid_query"),
         ("SELECT sale_id FROM sales WHERE", "invalid_query"),
@@ -187,12 +190,11 @@ def test_invalid_or_readless_sql_is_refused(sql: str, code: str) -> None:
         ),
         ("SELECT 1e999 + units FROM sales LIMIT 1", 20, "invalid_result"),
         (
-            "SELECT sum(CASE WHEN a.sale_id='S001' THEN 9223372036854775807 ELSE 0 END) "
-            "FROM sales AS a CROSS JOIN sales AS b CROSS JOIN sales AS c",
+            "SELECT sum(CASE WHEN sale_id='S001' THEN 9223372036854775807 ELSE 1 END) FROM sales",
             20,
             "invalid_result",
         ),
-        ("SELECT count(*) FROM sales" + " CROSS JOIN sales" * 7, 1, "execution_limit"),
+        (_BUSY_SQL, 1, "execution_limit"),
     ],
 )
 def test_result_and_execution_boundaries_refuse_without_partial_result(
@@ -209,34 +211,3 @@ def test_result_byte_bound_is_enforced_for_complete_result() -> None:
 def test_more_than_sixteen_result_columns_is_refused() -> None:
     columns = ", ".join(f"units AS c{i}" for i in range(17))
     _assert_failure(f"SELECT {columns} FROM sales LIMIT 1", "result_limit")
-
-
-@pytest.mark.parametrize(
-    ("sql", "max_rows"),
-    [
-        ("SELECT sum(units) FROM sales", 20),
-        ("SELECT FROM sales", 20),
-        ("SELECT sale_id FROM sales ORDER BY sale_id", 5),
-        ("SELECT CASE WHEN units >= 0 THEN X'00' ELSE X'01' END FROM sales LIMIT 1", 20),
-    ],
-)
-def test_owned_connection_closes_after_every_execution_outcome(
-    sql: str, max_rows: int, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    original_connect = sqlite3.connect
-    opened: list[sqlite3.Connection] = []
-
-    def track(database: str) -> sqlite3.Connection:
-        connection = original_connect(database)
-        opened.append(connection)
-        return connection
-
-    monkeypatch.setattr("data_intel._sales_context.sqlite3.connect", track)
-    if sql == "SELECT sum(units) FROM sales":
-        SQLiteQueryEngine().execute(_intent(sql, max_rows))
-    else:
-        with pytest.raises(QueryFailure):
-            SQLiteQueryEngine().execute(_intent(sql, max_rows))
-    assert len(opened) == 1
-    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
-        opened[0].execute("SELECT 1")

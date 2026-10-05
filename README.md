@@ -78,7 +78,9 @@ and local SQLite implementation for generic read-only sales SQL. It verifies the
 requested source before opening a fresh database, requires an authorized sales
 read for each query, and returns exact SQL/hash plus complete bounded result
 content with a clear unvalidated status. Execution is capped at 20 rows and
-returns only fixed safe error codes. Receipts, the Python service boundary,
+returns only fixed safe error codes. Ambiguous empty-column reads do not prove a
+physical source, so bare `count(*)` queries must use `main.sales`; CTEs named
+`sales` cannot satisfy source authorization. Receipts, the Python service boundary,
 full profiling, support retrieval, analytical/citation validation, persistence,
 model calls, UI and deployment remain planned. Cloudflare Python/SQLite
 compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for

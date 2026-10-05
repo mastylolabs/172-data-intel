@@ -71,7 +71,7 @@ def test_each_context_owns_a_fresh_isolated_database() -> None:
     with _sales_context() as first, _sales_context() as second:
         assert first._connection is not second._connection
         for context in (first, second):
-            assert context._connection.execute("SELECT count(*) FROM sales").fetchone() == (6,)
+            assert context._connection.execute("SELECT count(*) FROM main.sales").fetchone() == (6,)
 
 
 def test_policy_is_installed_after_fixture_setup(monkeypatch: pytest.MonkeyPatch) -> None:

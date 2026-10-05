@@ -120,7 +120,7 @@ def _is_sales_read(table: str | None, column: str | None, database: str | None) 
     if (table or "").lower() != "sales":
         return False
     if not column:
-        return database is None or (database or "").lower() == "main"
+        return (database or "").lower() == "main"
     return (database or "").lower() == "main" and column in _SALES_COLUMNS
 
 

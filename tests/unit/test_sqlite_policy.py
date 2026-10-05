@@ -8,6 +8,8 @@ import pytest
 
 from data_intel._sqlite_policy import PolicyFailure, install_sqlite_policy
 
+_BUSY_SQL = f"SELECT count(sale_id) FROM main.sales CROSS JOIN (VALUES{'(0),' * 1_499}(0))"
+
 
 def _sales_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
@@ -50,7 +52,7 @@ def test_installer_verifies_exact_effective_controls(connection: sqlite3.Connect
         "variable_number": 0,
         "trigger_depth": 0,
     }
-    assert connection.execute("SELECT count(*) FROM sales").fetchone() == (6,)
+    assert connection.execute("SELECT count(*) FROM main.sales").fetchone() == (6,)
     assert evidence.audit.sales_reads > 0 and not evidence.audit.denied
 
 
@@ -120,10 +122,9 @@ def test_vm_counter_interrupts_at_the_500th_100_step_callback(
     connection: sqlite3.Connection,
 ) -> None:
     monkeypatch.setattr("data_intel._sqlite_policy.time.monotonic", lambda: 1.0)
-    aliases = ", ".join(f"sales AS s{index}" for index in range(8))
     evidence = install_sqlite_policy(connection)
     with pytest.raises(sqlite3.OperationalError):
-        connection.execute(f"SELECT count(*) FROM {aliases}")
+        connection.execute(_BUSY_SQL)
     assert evidence.progress.callbacks == 500 and evidence.progress.reason == "vm"
 
 
@@ -146,10 +147,9 @@ def test_measurable_deadline_interrupts_after_250ms(
         return value
 
     monkeypatch.setattr("data_intel._sqlite_policy.time.monotonic", clock)
-    aliases = ", ".join(f"sales AS s{index}" for index in range(8))
     evidence = install_sqlite_policy(connection)
     with pytest.raises(sqlite3.OperationalError):
-        connection.execute(f"SELECT count(*) FROM {aliases}")
+        connection.execute(_BUSY_SQL)
     assert evidence.progress.callbacks == callbacks and evidence.progress.reason == "time"
 
 
