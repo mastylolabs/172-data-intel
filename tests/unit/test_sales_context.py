@@ -3,10 +3,12 @@
 import sqlite3
 from collections.abc import Iterator
 from datetime import date
+from functools import partial
 
 import pytest
 
-from data_intel._sales_context import _populate_sales, _sales_context, _SalesContext
+from data_intel._sales_context import _populate_sales, _SalesContext
+from data_intel._sales_context import _sales_context as _loader
 from data_intel._sqlite_policy import (
     PolicyFailure,
     _PolicyEvidence,
@@ -19,6 +21,8 @@ from data_intel.sales_fixture import (
     FixtureError,
     SaleRow,
 )
+
+_sales_context = partial(_loader, SALES_SOURCE)
 
 
 @pytest.fixture
@@ -67,7 +71,7 @@ def test_each_context_owns_a_fresh_isolated_database() -> None:
     with _sales_context() as first, _sales_context() as second:
         assert first._connection is not second._connection
         for context in (first, second):
-            assert context._connection.execute("SELECT count(*) FROM sales").fetchone() == (6,)
+            assert context._connection.execute("SELECT count(*) FROM main.sales").fetchone() == (6,)
 
 
 def test_policy_is_installed_after_fixture_setup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,7 +113,7 @@ def test_successful_exit_closes_owned_connection() -> None:
 def test_loader_failure_opens_no_database_or_yields_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail_loader() -> None:
+    def fail_loader(_requested: object = None) -> None:
         raise FixtureError("fixture_invalid")
 
     monkeypatch.setattr("data_intel._sales_context.load_sales_fixture", fail_loader)
