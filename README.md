@@ -17,8 +17,8 @@ make coverage
 
 `make install` and `make sync` use `uv sync --all-extras --dev`; `uv.lock` pins
 public application and developer dependencies. The editable `src/data_intel`
-package needs no private 172X dependency, service or credentials. M1 has no
-environment configuration or running server.
+package needs no private 172X dependency, service or credentials. There is no
+environment configuration or running server yet.
 
 Use `make format`, `lint`, `typecheck`, `test`, `complexity` or `coverage` for
 focused checks. `make gate` runs Ruff formatting/linting, strict mypy, pytest,
@@ -49,6 +49,22 @@ safety, authorization, dialect compatibility or executability, even for a
 supported source ID. No query executes in M1. Later milestones must enforce the
 approved-data and execution boundaries before using these payloads.
 
-There are no datasets, profiler, retrieval, numerical/citation validator,
-persistence, model calls, UI or deployment yet. Follow [TODO.md](TODO.md) for the
-next bounded capability; each milestone ends at a reviewed report and user checkpoint.
+M2's first fixture foundation bundles six synthetic sales/return lines in
+`data_intel/fixtures/sales-proof.csv`. `load_sales_fixture()` in `sales_fixture.py`
+reads at most 304 bytes, verifies the pinned 303-byte SHA-256 source, then validates
+the exact schema, six unique IDs, ISO calendar dates and signed 64-bit measures.
+An optional `SourceIdentity` must match the server registry before reading; source
+selection and client hashes cannot authorize other data. Missing or invalid data
+raises a safe `FixtureError`. Rows and computed count/date-range profile are immutable;
+the profile contains no bulk records. Fields explicitly define net returns, USD
+cents, valid zero and UTC calendar dates with half-open period boundaries. This
+fixture is also included in the built Python wheel.
+
+```sh
+uv run python -c 'from data_intel.sales_fixture import load_sales_fixture; print(load_sales_fixture().profile)'
+```
+
+Generic SQL execution, full profiling, support retrieval, numerical/citation validation,
+persistence, model calls, UI and deployment are planned. Follow [TODO.md](TODO.md)
+for the next bounded capability. Full GO permits continuing the approved milestones;
+each retains its report and independent delivery gates.

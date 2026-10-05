@@ -4,7 +4,10 @@
   39 tests, measured local coverage 98.18%. See its milestone report.
 - Full GO authorizes all remaining MVP milestones without routine pauses; retain
   a report after each and every independent engineering/provider gate.
-- M2 active: review and merge runtime/access/query contracts, then prove deployed
+- M2 active: reviewed runtime/access/query contracts merged in PR #2. The first
+  fixture slice implements six pinned synthetic sales rows, validated typed loading,
+  explicit meanings and computed metadata. Next: reusable bounded SQL execution,
+  private Python adapter, then prove deployed
   native Agent → Python engine → Llama 3.3 path with persistent isolated state.
   Target-runtime compatibility remains unverified. A bounded Llama access
   preflight failed with daily free allocation rejection; real AI proof remains
