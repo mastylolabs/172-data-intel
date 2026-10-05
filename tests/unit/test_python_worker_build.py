@@ -12,6 +12,14 @@ from data_intel import worker_build as build_python_worker
 WORKER_ROOT = Path(__file__).parents[2] / "workers" / "tools"
 
 
+def _copy_sources(vendored: Path) -> None:
+    source_root = build_python_worker.REPO_ROOT / "src" / "data_intel"
+    for source in source_root.rglob("*.py"):
+        target = vendored / source.relative_to(source_root)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes())
+
+
 def test_worker_is_not_publicly_routable_and_pins_runtime_metadata() -> None:
     config = json.loads((WORKER_ROOT / "wrangler.jsonc").read_text())
 
@@ -68,11 +76,10 @@ def test_build_command_is_dry_run_with_clean_revision(monkeypatch: pytest.Monkey
         assert check is False
         commands.append(command)
         contexts.append(cwd)
-        if command[0] == "uv":
+        if command[4:6] == ["deploy", "--dry-run"]:
             outdir = Path(command[command.index("--outdir") + 1])
             for name in (
                 "index.py",
-                "python_modules/data_intel/__init__.py",
                 "python_modules/workers/__init__.py",
                 "python_modules/pydantic/__init__.py",
                 "python_modules/pydantic_core/__init__.py",
@@ -81,6 +88,7 @@ def test_build_command_is_dry_run_with_clean_revision(monkeypatch: pytest.Monkey
                 path = outdir / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
+            _copy_sources(outdir / "python_modules/data_intel")
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(build_python_worker, "_committed_revision", lambda: revision)
@@ -88,11 +96,12 @@ def test_build_command_is_dry_run_with_clean_revision(monkeypatch: pytest.Monkey
 
     assert build_python_worker.main() == 0
     assert commands[0] == ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
-    assert commands[1][:6] == ["uv", "run", "--locked", "pywrangler", "deploy", "--dry-run"]
-    assert commands[1][-2:] == ["--var", f"BUILD_REVISION:{revision}"]
-    assert "--outdir" in commands[1]
-    assert contexts == [WORKER_ROOT, WORKER_ROOT]
-    assert not Path(commands[1][commands[1].index("--outdir") + 1]).exists()
+    assert commands[1] == ["uv", "run", "--locked", "pywrangler", "sync", "--force"]
+    assert commands[2][:6] == ["uv", "run", "--locked", "pywrangler", "deploy", "--dry-run"]
+    assert commands[2][-2:] == ["--var", f"BUILD_REVISION:{revision}"]
+    assert "--outdir" in commands[2]
+    assert contexts == [WORKER_ROOT, WORKER_ROOT, WORKER_ROOT]
+    assert not Path(commands[2][commands[2].index("--outdir") + 1]).exists()
 
 
 def test_git_revision_check_uses_repository_root(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,3 +165,10 @@ def test_bundle_without_vendored_modules_refuses_false_success(
 
     assert build_python_worker.main() == 2
     assert capsys.readouterr().err == "Worker dry-run bundle missing required Python modules\n"
+
+
+def test_vendored_source_must_match_current_checkout(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    assert build_python_worker._source_matches(tmp_path)
+    (tmp_path / "service_contracts.py").write_text("stale")
+    assert not build_python_worker._source_matches(tmp_path)

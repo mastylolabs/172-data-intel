@@ -21,7 +21,8 @@
   dry-run generated the tracked Pyodide `pylock.toml`; Wrangler 4.11.1 then gave
   a false-success bundle without dependencies. The Worker package now pins
   Wrangler 4.127.1 and the helper refuses lock regeneration or missing modules
-  in its temporary dry-run artifact. Next: review the corrected private build,
+  in its temporary dry-run artifact. A focused correction also forces local
+  source sync and checks exact vendored Python bytes. Next: review the corrected private build,
   then a reviewed native Agent bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A

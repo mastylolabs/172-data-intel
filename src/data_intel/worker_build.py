@@ -26,17 +26,27 @@ def _committed_revision() -> str:
     return revision
 
 
+def _source_matches(vendored: Path) -> bool:
+    source_root = REPO_ROOT / "src" / "data_intel"
+    for source in source_root.rglob("*.py"):
+        target = vendored / source.relative_to(source_root)
+        if not target.is_file() or target.read_bytes() != source.read_bytes():
+            return False
+    return True
+
+
 def _complete_bundle(outdir: Path) -> bool:
     modules = outdir / "python_modules"
     required = (
         outdir / "index.py",
-        modules / "data_intel" / "__init__.py",
         modules / "workers" / "__init__.py",
         modules / "pydantic" / "__init__.py",
         modules / "pydantic_core" / "__init__.py",
     )
-    return all(path.is_file() for path in required) and any(
-        (modules / "pydantic_core").glob("_pydantic_core*.so")
+    return (
+        all(path.is_file() for path in required)
+        and any((modules / "pydantic_core").glob("_pydantic_core*.so"))
+        and _source_matches(modules / "data_intel")
     )
 
 
@@ -48,6 +58,11 @@ def _dry_run(revision: str, outdir: Path) -> int:
     )
     if install.returncode:
         return install.returncode
+    sync = subprocess.run(
+        ["uv", "run", "--locked", "pywrangler", "sync", "--force"], check=False, cwd=WORKER_DIR
+    )
+    if sync.returncode:
+        return sync.returncode
     return subprocess.run(
         [
             "uv",
