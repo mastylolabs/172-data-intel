@@ -1,39 +1,44 @@
-"""Enforce A/B complexity, including methods/closures inside Radon's JSON blocks."""
+"""Enforce A/B complexity for every declaration, including all nested classes."""
 
-import subprocess
+import ast
 import sys
 from collections.abc import Iterator, Sequence
-from typing import NotRequired, TypedDict
+from pathlib import Path
+from typing import Protocol, cast
 
-from pydantic import TypeAdapter
+# Radon 6 has no typing metadata; narrow its namedtuple API to the fields read here.
+from radon.complexity import cc_visit_ast  # type: ignore[import-untyped]
 
 
-class Block(TypedDict):
+class Block(Protocol):
     name: str
     complexity: int
     lineno: int
-    methods: NotRequired[list["Block"]]
-    closures: NotRequired[list["Block"]]
 
 
-def descendants(block: Block) -> Iterator[Block]:
-    yield block
-    for child in block.get("methods", []) + block.get("closures", []):
-        yield from descendants(child)
+def source_files(paths: Sequence[str]) -> Iterator[Path]:
+    for name in paths:
+        path = Path(name)
+        if path.is_dir():
+            yield from path.rglob("*.py")
+        else:
+            yield path
+
+
+def declarations(path: Path) -> Iterator[Block]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            # Analyze each declaration once: Radon's module report omits some local classes.
+            yield cast(Sequence[Block], cc_visit_ast(node))[0]
 
 
 def check(paths: Sequence[str]) -> int:
-    completed = subprocess.run(
-        ["radon", "cc", *paths, "-j"], check=True, capture_output=True, text=True
-    )
-    report = TypeAdapter(dict[str, list[Block]]).validate_json(completed.stdout)
-    blocks = [
-        (path, child) for path, items in report.items() for b in items for child in descendants(b)
-    ]
-    failures = [(path, b) for path, b in blocks if b["complexity"] > 10]
-    average = sum(b["complexity"] for _, b in blocks) / len(blocks) if blocks else 0
+    blocks = [(path, block) for path in source_files(paths) for block in declarations(path)]
+    failures = [(path, block) for path, block in blocks if block.complexity > 10]
+    average = sum(block.complexity for _, block in blocks) / len(blocks) if blocks else 0
     for path, block in failures:
-        print(f"Complexity C+ rejected: {path}:{block['lineno']} {block['name']}")
+        print(f"Complexity C+ rejected: {path}:{block.lineno} {block.name}")
     print(f"Enforced average complexity: {average:.2f} (A preferred, B accepted)")
     return int(bool(failures) or average > 10)
 

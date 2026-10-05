@@ -23,13 +23,19 @@ def test_conforming_function_passes_with_reported_average(tmp_path: Path) -> Non
     assert "Enforced average complexity: 1.00" in result.stdout
 
 
-@pytest.mark.parametrize("container", ["module", "closure", "class"])
+@pytest.mark.parametrize("container", ["module", "closure", "class", "nested_class", "local_class"])
 def test_c_plus_function_is_rejected_even_when_nested(tmp_path: Path, container: str) -> None:
-    lines = ["def complex(value):"]
+    lines = ["def complex(self, value):"]
     for number in range(10):
         lines.extend([f"    if value == {number}:", f"        return {number}"])
-    if container != "module":
-        declaration = "class Outer:" if container == "class" else "def outer(value):"
+    containers = {
+        "module": [],
+        "closure": ["def outer(value):"],
+        "class": ["class Outer:"],
+        "nested_class": ["class Outer:", "class Inner:"],
+        "local_class": ["def outer(value):", "class Inner:"],
+    }
+    for declaration in reversed(containers[container]):
         lines = [declaration] + ["    " + line for line in lines]
     (tmp_path / "sample.py").write_text("\n".join(lines) + "\n")
     result = run_gate(tmp_path)
@@ -38,6 +44,17 @@ def test_c_plus_function_is_rejected_even_when_nested(tmp_path: Path, container:
     assert "complex" in result.stdout
     if container == "module":
         assert "Enforced average complexity: 11.00" in result.stdout
+
+
+def test_b_complexity_at_ten_is_accepted(tmp_path: Path) -> None:
+    lines = ["def boundary(value):"]
+    for number in range(9):
+        lines.extend([f"    if value == {number}:", f"        return {number}"])
+    path = tmp_path / "sample.py"
+    path.write_text("\n".join(lines) + "\n")
+    result = run_gate(path)
+    assert result.returncode == 0
+    assert "Enforced average complexity: 10.00" in result.stdout
 
 
 def test_no_function_blocks_have_zero_average(tmp_path: Path) -> None:

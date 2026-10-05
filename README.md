@@ -23,7 +23,7 @@ environment configuration or running server.
 Use `make format`, `lint`, `typecheck`, `test`, `complexity` or `coverage` for
 focused checks. `make gate` runs Ruff formatting/linting, strict mypy, pytest,
 Radon reporting and an enforcement script that rejects C+ function or average
-complexity, including nested closures/methods and the gate script itself. CI
+complexity, including function-local/nested classes, closures and the gate script itself. CI
 installs the frozen lock with Python 3.12 and invokes this same gate. Coverage
 reports measured package and checker line/branch coverage; no percentage acceptance threshold
 is defined.
