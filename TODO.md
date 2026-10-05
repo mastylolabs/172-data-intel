@@ -19,7 +19,10 @@
   service transport. The second P2 slice adds a private Python Worker manifest,
   provenance fence, and clean-revision dry-run helper. Pywrangler is absent in
   this environment, so packaging and target-runtime compatibility remain
-  unverified. Next: obtain a reviewed private build, then a reviewed native Agent
+  unverified. Before claiming a reproducible private build, generate and review
+  Pywrangler's separate Pyodide `pylock.toml` and pin/verify the Wrangler binary;
+  the host `uv.lock` alone does not cover either. Next: obtain a reviewed private
+  build, then a reviewed native Agent
   bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A

@@ -104,8 +104,12 @@ provided by this scaffold.
 
 From a **clean committed checkout** with Pywrangler already available, run
 `make python-worker-dry-run` to package without uploading. The helper refuses
-dirty/untracked source, uses the frozen Worker lock, and passes the exact checkout
+dirty/untracked source, uses the frozen host-side `uv.lock`, and passes the exact checkout
 revision as `BUILD_REVISION`. It runs Pywrangler from `workers/tools/` so the
 Worker's Wrangler config is the build target.
-The private build and target-runtime controls still need an actual Pywrangler
-dry run and later deployed probe; local config/mocked tests do not establish them.
+Pywrangler generates a separate Pyodide `pylock.toml` during sync and proxies to
+Wrangler through `npx`; neither the runtime lock nor Wrangler binary is pinned
+or validated in this slice. Review those artifacts before treating a build as
+reproducible. The private build and target-runtime controls still need an actual
+Pywrangler dry run and later deployed probe; local config/mocked tests do not
+establish them.
