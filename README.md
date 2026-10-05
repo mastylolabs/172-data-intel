@@ -111,7 +111,8 @@ passes the exact checkout revision as `BUILD_REVISION`, and runs Pywrangler from
 bundle omits the entrypoint, `data_intel`, `workers`, `pydantic`, or the
 `pydantic_core` native module. The temporary bundle is removed afterward.
 Each build forces Pywrangler to refresh the local analytical package and checks
-that every vendored Python source file matches this committed checkout; Pywrangler's
+that every committed `src/data_intel` Python source file matches the vendored
+bundle; Pywrangler's
 ordinary timestamp check does not track local source edits.
 The older Wrangler 4.11.1 returned a false-success bundle without vendored
 modules; use the pinned package and lockfile. Deployed runtime controls still
