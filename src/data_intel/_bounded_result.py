@@ -112,7 +112,7 @@ def _row(row: object, column_count: int) -> tuple[Cell, ...]:
         raise ResultContentError("invalid_result")
     try:
         width = len(row)
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         raise ResultContentError("invalid_result") from None
     if width != column_count:
         raise ResultContentError("invalid_result")

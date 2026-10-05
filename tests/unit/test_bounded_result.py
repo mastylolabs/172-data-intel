@@ -146,7 +146,7 @@ def test_integer_outside_sqlite_signed_range_is_refused(value: int) -> None:
     assert error.value.code == "invalid_result"
 
 
-@pytest.mark.parametrize("row", [(), (1, 2), "1", b"1", 1])
+@pytest.mark.parametrize("row", [(), (1, 2), "1", b"1", 1, range(10**100)])
 def test_mismatched_or_nonrow_values_are_refused(row: object) -> None:
     with pytest.raises(ResultContentError) as error:
         build_bounded_result(("v",), (cast(Sequence[object], row),), 1)
