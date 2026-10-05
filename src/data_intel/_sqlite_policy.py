@@ -175,5 +175,5 @@ def install_sqlite_policy(connection: sqlite3.Connection) -> _PolicyEvidence:
         return _PolicyEvidence(heap_bytes, pragmas, limits, audit, progress)
     except PolicyFailure:
         raise
-    except (AttributeError, sqlite3.Error):
+    except (AttributeError, MemoryError, sqlite3.Error):
         raise PolicyFailure() from None

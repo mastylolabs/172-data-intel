@@ -178,7 +178,13 @@ class _ConnectionProxy:
 
 @pytest.mark.parametrize(
     "missing",
-    ["setlimit", "getlimit", "set_authorizer", "set_progress_handler", "ineffective_limit"],
+    [
+        "setlimit",
+        "getlimit",
+        "set_authorizer",
+        "set_progress_handler",
+        "ineffective_limit",
+    ],
 )
 def test_connection_control_failure_fails_closed_without_raw_detail(
     missing: str,
@@ -191,30 +197,25 @@ def test_connection_control_failure_fails_closed_without_raw_detail(
 
 
 @pytest.mark.parametrize(
-    ("setter", "readback"),
+    "setter",
     [
-        ("PRAGMA hard_heap_limit=8388608", "PRAGMA hard_heap_limit"),
-        ("PRAGMA trusted_schema=0", "PRAGMA trusted_schema"),
-        ("PRAGMA temp_store=2", "PRAGMA temp_store"),
-        ("PRAGMA query_only=1", "PRAGMA query_only"),
+        "PRAGMA hard_heap_limit=8388608",
+        "PRAGMA trusted_schema=0",
+        "PRAGMA temp_store=2",
+        "PRAGMA query_only=1",
     ],
 )
-def test_ineffective_required_pragma_fails_closed(
+def test_hard_heap_memory_and_ineffective_pragmas_fail_closed(
     setter: str,
-    readback: str,
     connection: sqlite3.Connection,
 ) -> None:
     class IgnoredPragma(_ConnectionProxy):
         def execute(self, sql: str) -> sqlite3.Cursor:
+            if sql == setter and "hard_heap_limit" in sql:
+                raise MemoryError
             if sql == setter:
                 return self.inner.execute("SELECT 0")
-            if sql == readback and "hard_heap_limit" in sql:
-                return cast(sqlite3.Cursor, _ZeroCursor())
             return self.inner.execute(sql)
-
-    class _ZeroCursor:
-        def fetchone(self) -> tuple[int]:
-            return (0,)
 
     with pytest.raises(PolicyFailure, match=r"^runtime_incompatible$"):
         install_sqlite_policy(cast(sqlite3.Connection, IgnoredPragma(connection)))
