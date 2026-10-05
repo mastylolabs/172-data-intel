@@ -28,6 +28,13 @@ installs the frozen lock with Python 3.12 and invokes this same gate. Coverage
 reports measured package and checker line/branch coverage; no percentage acceptance threshold
 is defined.
 
+Enforcement discovers every synchronous/asynchronous function and class in the
+Python AST, asks Radon's `cc_visit_ast` API for each declaration's score, and
+computes their arithmetic mean once per declaration across `src`, `tests` and
+`scripts`. Each score and the mean must be <=10 (A/B). This includes nested and
+function-local class methods that the default Radon report can omit; the
+canonical `src tests` reporting command remains part of the gate.
+
 The external boundary in `contracts.py` accepts version `"1"`, only source IDs
 `sales`/`support`, a lowercase 64-hex SHA-256 and a meaning revision of 1–64 ASCII
 characters matching `[a-z][a-z0-9._-]*`. Declared source identity does not prove
