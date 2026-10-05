@@ -81,6 +81,33 @@ def _dry_run(revision: str, outdir: Path) -> int:
     ).returncode
 
 
+def _post_build_status(
+    revision: str, runtime_lock: Path, locked_bytes: bytes, result: int, complete: bool
+) -> int:
+    try:
+        lock_unchanged = runtime_lock.read_bytes() == locked_bytes
+    except OSError:
+        print("Worker runtime lock unavailable after build", file=sys.stderr)
+        return 2
+    if not lock_unchanged:
+        print("Worker runtime lock changed during build", file=sys.stderr)
+        return 2
+    if result:
+        return result
+    if not complete:
+        print("Worker dry-run bundle missing required Python modules", file=sys.stderr)
+        return 2
+    try:
+        final_revision = _committed_revision()
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        print("Worker checkout changed during build", file=sys.stderr)
+        return 2
+    if final_revision != revision:
+        print("Worker revision changed during build", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main() -> int:
     try:
         revision = _committed_revision()
@@ -101,27 +128,7 @@ def main() -> int:
     except OSError:
         print("Worker build tool unavailable", file=sys.stderr)
         return 2
-    try:
-        if runtime_lock.read_bytes() != locked_bytes:
-            print("Worker runtime lock changed during build", file=sys.stderr)
-            return 2
-    except OSError:
-        print("Worker runtime lock unavailable after build", file=sys.stderr)
-        return 2
-    if result:
-        return result
-    if not complete:
-        print("Worker dry-run bundle missing required Python modules", file=sys.stderr)
-        return 2
-    try:
-        final_revision = _committed_revision()
-    except (OSError, subprocess.CalledProcessError, ValueError):
-        print("Worker checkout changed during build", file=sys.stderr)
-        return 2
-    if final_revision != revision:
-        print("Worker revision changed during build", file=sys.stderr)
-        return 2
-    return 0
+    return _post_build_status(revision, runtime_lock, locked_bytes, result, complete)
 
 
 if __name__ == "__main__":
