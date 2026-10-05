@@ -64,11 +64,14 @@ fixture is also included in the built Python wheel.
 uv run python -c 'from data_intel.sales_fixture import load_sales_fixture; print(load_sales_fixture().profile)'
 ```
 
-The private `_sqlite_policy.py` module installs and locally tests SQLite read-only,
-authorizer, limit and progress controls on a caller-prepared in-memory connection.
-It does not load sources, open databases, expose a connection API or execute product
-queries. Hash-verified SQLite setup, generic SQL execution, full profiling, support
-retrieval, numerical/citation validation, persistence, model calls, UI and deployment
-remain planned. Cloudflare Python/SQLite compatibility and deployed controls are
-unverified. Follow [TODO.md](TODO.md) for the next bounded capability. Full GO permits
+The private `_sales_context.py` module opens a fresh literal `:memory:` database only
+after the verified loader succeeds, loads the fixed sales schema with bound values,
+then installs the private read-only, authorizer, limit and progress controls. Its
+context manager closes the owned connection after success or failure; tests verify
+source metadata, exact fixture rows and independently known SQL totals. SQLite
+connection or setup errors fail as the safe `runtime_incompatible` classification.
+The generic query executor, full profiling, support retrieval, numerical/citation
+validation, persistence, model calls, UI and deployment remain planned. Cloudflare
+Python/SQLite compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for the
+next bounded capability. Full GO permits
 continuing the approved milestones; each retains its report and independent gates.
