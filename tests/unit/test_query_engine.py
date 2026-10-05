@@ -34,6 +34,42 @@ def _assert_failure(intent: SqlIntent | str, code: str, max_rows: int = 20) -> N
 
 
 @pytest.mark.parametrize(
+    ("sql", "max_rows", "failure_code"),
+    [
+        ("SELECT sum(units) FROM sales", 20, None),
+        ("SELECT FROM sales", 20, "invalid_query"),
+        ("SELECT sale_id FROM sales ORDER BY sale_id", 5, "result_limit"),
+        (
+            "SELECT CASE WHEN units >= 0 THEN X'00' ELSE X'01' END FROM sales LIMIT 1",
+            20,
+            "invalid_result",
+        ),
+    ],
+)
+def test_owned_connection_closes_after_every_execution_outcome(
+    sql: str, max_rows: int, failure_code: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_connect = sqlite3.connect
+    opened: list[sqlite3.Connection] = []
+
+    def track(database: str) -> sqlite3.Connection:
+        assert database == ":memory:"
+        connection = original_connect(database)
+        opened.append(connection)
+        return connection
+
+    monkeypatch.setattr("data_intel._sales_context.sqlite3.connect", track)
+    if failure_code is None:
+        result = SQLiteQueryEngine().execute(_intent(sql, max_rows))
+        assert _values(result) == (("10",),)
+    else:
+        _assert_failure(_intent(sql, max_rows), failure_code)
+    assert len(opened) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("SELECT 1")
+
+
+@pytest.mark.parametrize(
     ("sql", "expected"),
     [
         (
