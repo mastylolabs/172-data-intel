@@ -61,6 +61,7 @@ docs/172x-manual/site/
 .coverage
 .coverage.*
 coverage.xml
+coverage.json
 *.cover
 .cache/
 .hypothesis/

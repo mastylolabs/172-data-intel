@@ -206,3 +206,91 @@ Present a short summary explaining:
 
 Stop here. Present the documents for my review and wait for my approval before implementation.
 <!-- END VERBATIM HUMAN PROMPT -->
+
+
+---
+
+User prompt recorded 2026-10-05 04:41:15 UTC
+
+# Build the Working 172X Data Intelligence MVP
+
+Work in /Users/zbigniew/dev/code/172x-data-intel.
+
+Build a working application I can share with the Cloudflare hiring team. Keep it simple and ready to evolve within the 172X ecosystem.
+
+Append this prompt in full to PROMPTS.md before implementation. Record later user prompts, respecting explicit logging exclusions and keeping secrets out of the log.
+
+Read AGENTS.md and docs/architecture.md. Keep the original architecture as our reference. Address review findings that affect this MVP's correctness or ability to run. Defer recommendations for larger workloads and future capabilities.
+
+## Application
+
+Use Workers AI with Llama 3.3, a native Cloudflare Agent backed by a Durable Object, and a web chat. Persist conversation memory and selected-source state so refresh and follow-up questions work.
+
+Keep Python >=3.12 for profiling, analytical execution, calculations, and deterministic validation. Use a small TypeScript layer for the Agents SDK and frontend.
+
+Keep the Orchestrator, Data Profiler, conditional Semantic Agent, Analyst, and independent Validator as logical roles with clear responsibilities.
+
+Include two bundled synthetic datasets:
+
+- A sales CSV for structured analysis.
+- A support-message JSONL corpus for targeted search with citations.
+
+Let the Analyst generate SQL from the question, schema, profile, and field meanings. Execute it through a reusable query interface that supports varied queries, including filtering, aggregation, grouping, ranking, and period comparisons.
+
+Choose the smallest query engine that works in the deployed Python runtime. Prove the Agent → Python query engine → Workers AI integration early, including persistent state. Bring me evidence and options if the agreed runtime boundary cannot work.
+
+Keep queries read-only, restrict them to approved data, and enforce execution and result limits. Give the model bounded profiles, results, and evidence.
+
+Keep support retrieval targeted. Return message IDs and exact source quotes, and explain the search limits. Search hits must not imply whole-corpus trends, prevalence, or proof of absence.
+
+Ask for clarification when meaning is unclear. Have the Validator check the plan, query meaning, numerical claims, citations, and candidate answer before publication. Keep sessions separate, protect secrets, bound model calls and retries, and handle failures clearly.
+
+Defer uploads, live connectors, OAuth, PostgreSQL, Parquet, vector search, full-corpus classification, containers, distributed execution, and large-scale benchmarks.
+
+## Logical deliverables
+
+Write a concise delivery plan with bounded milestones, dependencies, acceptance criteria, and proposed PR boundaries. Cover:
+
+- Engineering tooling, approved scope, and typed contracts.
+- Data profiling, fixture loading, source hashes, and explicit field meanings.
+- Generic query execution and targeted support retrieval.
+- Deterministic validation and the Python service boundary.
+- Native Agent coordination, durable state, isolation, and interruption handling.
+- Analyst planning, clarification, grounded answers, and separate model validation.
+- Web chat with source selection, suggested questions, progress, answers, and inspectable evidence.
+- Deployment, integration tests, setup instructions, and limitations.
+
+Give each milestone one coherent capability or useful foundation. Split it into as many small PRs as needed, with relevant tests and documentation for each change.
+
+## PRs and verification
+
+Follow AGENTS.md and Conventional Commits. Target 200–300 changed handwritten code lines per PR and never exceed 400, including tests, scripts, and handwritten configuration. Apply AGENTS.md's counting and exclusion rules.
+
+Use the appropriate 172X workflow for each bounded PR. Verify project activation and configured reviewer access. Keep implementation, QA, and review independent. Give engineers scoped handoffs; do not hand the entire MVP to one coding task.
+
+I approve implementation, guarded PR merges, and Cloudflare preview deployments within this scope. Merge through the 172X guarded process only when engineering checks, independent QA, required review corrections, and configured provider bot approval all pass on the current head. Preserve provider gates and branch protection. Continue within the milestone without asking me to approve each PR.
+
+If I explicitly ask to inspect a PR before merging, hold it until I release it. Start dependent work after its prerequisites are reviewed and merged.
+
+I authorize including known bootstrap documents and prompt-log changes in their relevant scoped PR. Preserve unrelated work.
+
+Use real data execution. Check calculations against independently known fixture results and test questions beyond the suggested examples. Test invalid queries, fabricated claims, citations, refresh, and follow-ups. Run the repository quality gate and applicable TypeScript and browser checks. Measure unit-test coverage for implemented code.
+
+## Milestone reports
+
+Complete the acceptance checks, confirm the implementation PRs have merged into main, and save a concise report under docs/milestones/ covering:
+
+- Delivered behavior, links to the merged PRs, and the verified main revision.
+- Problems encountered, resolutions, and remaining issues.
+- The hardest technical problem, your solution, and why you chose it.
+- Measured unit-test coverage, test counts and results, and important coverage gaps.
+- Integration and deployed test results, including failures and unrun checks.
+- The next proposed milestone and any decisions you need from me.
+
+Use actual evidence and clearly identify incomplete work. Address any problems I find in merged PRs through focused follow-up PRs with the same checks and review.
+
+Present the report and stop. Wait for my instruction before starting the next milestone.
+
+For the final milestone, deploy the reviewed application to my Cloudflare account and smoke-test both examples. Provide the live URL, setup and deployment instructions, example questions, test results, and limitations.
+
+Start with the delivery plan and the first bounded milestone.

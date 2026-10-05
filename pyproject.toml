@@ -1,0 +1,55 @@
+[build-system]
+requires = ["uv_build>=0.8,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "172x-data-intel"
+version = "0.1.0"
+description = "Evidence-first analytical contracts for the 172X Cloudflare MVP"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.12,<3"]
+
+[dependency-groups]
+dev = ["mypy>=1.0", "pytest>=8.0", "pytest-cov>=7.0", "radon>=6.0", "ruff>=0.8"]
+
+[tool.uv.build-backend]
+module-name = "data_intel"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "ARG", "PTH", "RUF"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["data_intel", "scripts"]
+patch = ["subprocess"]
+
+[tool.coverage.report]
+show_missing = true
