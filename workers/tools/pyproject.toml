@@ -1,0 +1,12 @@
+[project]
+name = "172x-data-intel-tools-worker"
+version = "0.1.0"
+description = "Private Python runtime foundation for the M2 proof service"
+requires-python = ">=3.13"
+dependencies = ["172x-data-intel>=0.1.0"]
+
+[tool.uv.sources]
+172x-data-intel = { path = "../..", editable = false }
+
+[dependency-groups]
+dev = ["workers-py>=1.5,<2", "workers-runtime-sdk>=1,<2"]

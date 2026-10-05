@@ -21,6 +21,7 @@ MANIFEST
 
 # Virtual environments
 .venv/
+**/.venv-workers/
 venv/
 ENV/
 env/
@@ -30,6 +31,7 @@ env/
 # JavaScript / TypeScript / frontend tooling
 # -----------------------------------------------------------------------------
 **/node_modules/
+**/python_modules/
 **/.pnpm-store/
 **/.npm/
 **/.yarn/
@@ -180,4 +182,3 @@ docker-compose.override.yaml
 
 # .private folder
 .private/
-

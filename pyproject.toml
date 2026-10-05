@@ -39,6 +39,7 @@ disallow_incomplete_defs = true
 check_untyped_defs = true
 no_implicit_optional = true
 strict_equality = true
+exclude = ["^workers/tools/python_modules/", "^workers/tools/\\.venv-workers/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

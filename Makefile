@@ -1,4 +1,4 @@
-.PHONY: install sync format lint typecheck test complexity coverage gate
+.PHONY: install sync format lint typecheck test complexity coverage gate python-worker-dry-run
 
 install sync:
 	uv sync --all-extras --dev
@@ -21,6 +21,9 @@ complexity:
 
 coverage:
 	uv run pytest --cov=data_intel --cov=scripts --cov-branch --cov-report=term-missing
+
+python-worker-dry-run:
+	uv run python scripts/build_python_worker.py
 
 gate:
 	uv run ruff format --check .
