@@ -4,7 +4,14 @@ Artifact: MVP-DELIVERY-v1, 2026-10-04. Active implementation sequence for the
 current build prompt in [PROMPTS.md](../PROMPTS.md). This plan supersedes the
 proposed milestone sequence in [implementation-plan.md](implementation-plan.md)
 for this build; it preserves that document and the original
-[architecture](architecture.md) as references. No milestone acceptance is claimed.
+[architecture](architecture.md) as references. Actual acceptance is recorded in
+the [milestone reports](milestones/m1-foundation-report.md).
+
+Continuation authority: the user prompt recorded 2026-10-05 05:41:21 UTC gives
+full GO for all remaining approved MVP milestones without intervention. Save a
+report after each and continue from stable merged prerequisites. This supersedes
+the earlier milestone pauses; engineering, independent review and provider gates
+remain unchanged.
 
 The deliverable is a shareable Cloudflare application: a native Agent backed by a
 Durable Object, Workers AI with Llama 3.3, Python >=3.12 analytical tools, and web
@@ -80,8 +87,10 @@ acceptance checks and save a report under `docs/milestones/`: delivered behavior
 PR links, verified main revision, problems/resolutions/remaining issues, hardest
 technical problem/solution/rationale, measured coverage and test counts/gaps,
 integration/deployed failures or unrun checks with reasons, and the next milestone
-and needed decisions. Present the report and stop until the user instructs the
-next milestone. Corrections use focused PRs with the same checks and reviews.
+and needed decisions. Under the continuation authority above, present/save each
+report and continue authorized independent work. Record actual blockers without
+inventing passed checks or changing billing, scope or provider protections.
+Corrections use focused PRs with the same checks and reviews.
 
 Defer uploads, live connectors, OAuth, PostgreSQL, Parquet, vector search,
 full-corpus classification, containers, distributed execution and large-scale
