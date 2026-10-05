@@ -172,3 +172,17 @@ def test_vendored_source_must_match_current_checkout(tmp_path: Path) -> None:
     assert build_python_worker._source_matches(tmp_path)
     (tmp_path / "service_contracts.py").write_text("stale")
     assert not build_python_worker._source_matches(tmp_path)
+
+
+def test_checkout_change_after_build_refuses_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pylock.toml").write_text("reviewed")
+    revisions = iter(("a" * 40, "dirty"))
+    monkeypatch.setattr(build_python_worker, "WORKER_DIR", tmp_path)
+    monkeypatch.setattr(build_python_worker, "_committed_revision", lambda: next(revisions))
+    monkeypatch.setattr(build_python_worker, "_dry_run", lambda *_: 0)
+    monkeypatch.setattr(build_python_worker, "_complete_bundle", lambda *_: True)
+
+    assert build_python_worker.main() == 2
+    assert capsys.readouterr().err == "Worker revision changed during build\n"

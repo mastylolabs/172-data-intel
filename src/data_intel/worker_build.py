@@ -113,6 +113,14 @@ def main() -> int:
     if not complete:
         print("Worker dry-run bundle missing required Python modules", file=sys.stderr)
         return 2
+    try:
+        final_revision = _committed_revision()
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        print("Worker checkout changed during build", file=sys.stderr)
+        return 2
+    if final_revision != revision:
+        print("Worker revision changed during build", file=sys.stderr)
+        return 2
     return 0
 
 
