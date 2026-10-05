@@ -8,8 +8,9 @@
   fixture slice implements six pinned synthetic sales rows, validated typed loading,
   explicit meanings and computed metadata. A separate private SQLite policy-hook
   foundation installs locally tested read-only controls, limits, authorization and
-  progress bounds; source-bound database setup and query execution remain pending.
-  Next: verified fixture context and generic bounded SQL execution, then private
+  progress bounds. The source-bound context opens a fresh in-memory database from
+  loader-verified rows, installs policy after loading and closes on all context exits.
+  Generic bounded SQL execution remains pending. Next: query execution, then private
   Python adapter and deployed native Agent → Python engine → Llama 3.3 proof with
   persistent isolated state. Target-runtime compatibility remains unverified. A
   bounded Llama access preflight failed with daily free allocation rejection; real
