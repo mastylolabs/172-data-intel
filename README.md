@@ -104,9 +104,12 @@ provided by this scaffold.
 
 From a **clean committed checkout** with the locked Worker dev tools installed,
 run `make python-worker-dry-run` to package without uploading. The helper refuses
-dirty/untracked source, passes the exact checkout revision as `BUILD_REVISION`,
-and runs Pywrangler from `workers/tools/` against its Wrangler config. It also
-requires the reviewed Pyodide `pylock.toml` and fails if Pywrangler regenerates it.
-A local dry-run succeeded with Pywrangler 1.17.6 and npx Wrangler 4.11.1; this
-establishes packaging in that environment only. Wrangler is not pinned by the
-host `uv.lock`, and deployed runtime controls still need a reviewed probe.
+dirty/untracked source, installs the pinned local Wrangler 4.127.1 with `npm ci`,
+passes the exact checkout revision as `BUILD_REVISION`, and runs Pywrangler from
+`workers/tools/` against its Wrangler config. It requires the reviewed Pyodide
+`pylock.toml` and fails if Pywrangler regenerates it or if the temporary dry-run
+bundle omits the entrypoint, `data_intel`, `workers`, `pydantic`, or the
+`pydantic_core` native module. The temporary bundle is removed afterward.
+The older Wrangler 4.11.1 returned a false-success bundle without vendored
+modules; use the pinned package and lockfile. Deployed runtime controls still
+need a reviewed probe.

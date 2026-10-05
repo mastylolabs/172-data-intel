@@ -18,10 +18,10 @@
   explicit runtime provenance validation; it has local parity tests but no
   service transport. The second P2 slice adds a private Python Worker manifest,
   provenance fence, and clean-revision dry-run helper. A local Pywrangler 1.17.6
-  / npx Wrangler 4.11.1 dry-run succeeded without upload, and its generated
-  Pyodide `pylock.toml` is tracked. The helper now refuses lock regeneration.
-  Wrangler remains unpinned by the host `uv.lock`; pin and verify it before
-  claiming cross-environment reproducibility. Next: review the private build,
+  dry-run generated the tracked Pyodide `pylock.toml`; Wrangler 4.11.1 then gave
+  a false-success bundle without dependencies. The Worker package now pins
+  Wrangler 4.127.1 and the helper refuses lock regeneration or missing modules
+  in its temporary dry-run artifact. Next: review the corrected private build,
   then a reviewed native Agent bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A

@@ -1,0 +1,7 @@
+{
+  "name": "172x-data-intel-m2-tools",
+  "private": true,
+  "devDependencies": {
+    "wrangler": "4.127.1"
+  }
+}

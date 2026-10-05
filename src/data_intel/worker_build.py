@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKER_DIR = REPO_ROOT / "workers" / "tools"
@@ -25,6 +26,46 @@ def _committed_revision() -> str:
     return revision
 
 
+def _complete_bundle(outdir: Path) -> bool:
+    modules = outdir / "python_modules"
+    required = (
+        outdir / "index.py",
+        modules / "data_intel" / "__init__.py",
+        modules / "workers" / "__init__.py",
+        modules / "pydantic" / "__init__.py",
+        modules / "pydantic_core" / "__init__.py",
+    )
+    return all(path.is_file() for path in required) and any(
+        (modules / "pydantic_core").glob("_pydantic_core*.so")
+    )
+
+
+def _dry_run(revision: str, outdir: Path) -> int:
+    install = subprocess.run(
+        ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"],
+        check=False,
+        cwd=WORKER_DIR,
+    )
+    if install.returncode:
+        return install.returncode
+    return subprocess.run(
+        [
+            "uv",
+            "run",
+            "--locked",
+            "pywrangler",
+            "deploy",
+            "--dry-run",
+            "--outdir",
+            str(outdir),
+            "--var",
+            f"BUILD_REVISION:{revision}",
+        ],
+        check=False,
+        cwd=WORKER_DIR,
+    ).returncode
+
+
 def main() -> int:
     try:
         revision = _committed_revision()
@@ -37,18 +78,11 @@ def main() -> int:
     except OSError:
         print("Worker runtime lock unavailable", file=sys.stderr)
         return 2
-    command = [
-        "uv",
-        "run",
-        "--locked",
-        "pywrangler",
-        "deploy",
-        "--dry-run",
-        "--var",
-        f"BUILD_REVISION:{revision}",
-    ]
     try:
-        result = subprocess.run(command, check=False, cwd=WORKER_DIR)
+        with TemporaryDirectory(prefix="172x-worker-dry-run-") as directory:
+            outdir = Path(directory)
+            result = _dry_run(revision, outdir)
+            complete = _complete_bundle(outdir) if result == 0 else False
     except OSError:
         print("Worker build tool unavailable", file=sys.stderr)
         return 2
@@ -59,7 +93,12 @@ def main() -> int:
     except OSError:
         print("Worker runtime lock unavailable after build", file=sys.stderr)
         return 2
-    return result.returncode
+    if result:
+        return result
+    if not complete:
+        print("Worker dry-run bundle missing required Python modules", file=sys.stderr)
+        return 2
+    return 0
 
 
 if __name__ == "__main__":
