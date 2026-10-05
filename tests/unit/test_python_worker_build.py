@@ -58,10 +58,12 @@ def test_build_revision_refuses_malformed_commit(monkeypatch: pytest.MonkeyPatch
 def test_build_command_is_dry_run_with_clean_revision(monkeypatch: pytest.MonkeyPatch) -> None:
     revision = "ef8eac322f95580c5c717cdef2c9eabdf7f55ff2"
     commands: list[list[str]] = []
+    contexts: list[Path] = []
 
-    def record(command: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:
+    def record(command: list[str], *, check: bool, cwd: Path) -> subprocess.CompletedProcess[str]:
         assert check is False
         commands.append(command)
+        contexts.append(cwd)
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(build_python_worker, "_committed_revision", lambda: revision)
@@ -73,8 +75,6 @@ def test_build_command_is_dry_run_with_clean_revision(monkeypatch: pytest.Monkey
             "uv",
             "run",
             "--locked",
-            "--project",
-            "workers/tools",
             "pywrangler",
             "deploy",
             "--dry-run",
@@ -82,6 +82,17 @@ def test_build_command_is_dry_run_with_clean_revision(monkeypatch: pytest.Monkey
             f"BUILD_REVISION:{revision}",
         ]
     ]
+    assert contexts == [WORKER_ROOT]
+
+
+def test_git_revision_check_uses_repository_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    def record(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["git", "rev-parse", "HEAD"]
+        assert options["cwd"] == WORKER_ROOT.parents[1]
+        return subprocess.CompletedProcess(command, 0, stdout="a" * 40)
+
+    monkeypatch.setattr(subprocess, "run", record)
+    assert build_python_worker._run_git("rev-parse", "HEAD") == "a" * 40
 
 
 def test_missing_build_tool_returns_safe_failure(

@@ -105,6 +105,7 @@ provided by this scaffold.
 From a **clean committed checkout** with Pywrangler already available, run
 `make python-worker-dry-run` to package without uploading. The helper refuses
 dirty/untracked source, uses the frozen Worker lock, and passes the exact checkout
-revision as `BUILD_REVISION`.
+revision as `BUILD_REVISION`. It runs Pywrangler from `workers/tools/` so the
+Worker's Wrangler config is the build target.
 The private build and target-runtime controls still need an actual Pywrangler
 dry run and later deployed probe; local config/mocked tests do not establish them.
