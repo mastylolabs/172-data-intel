@@ -3,10 +3,12 @@
 import sqlite3
 from collections.abc import Iterator
 from datetime import date
+from functools import partial
 
 import pytest
 
-from data_intel._sales_context import _populate_sales, _sales_context, _SalesContext
+from data_intel._sales_context import _populate_sales, _SalesContext
+from data_intel._sales_context import _sales_context as _loader
 from data_intel._sqlite_policy import (
     PolicyFailure,
     _PolicyEvidence,
@@ -19,6 +21,8 @@ from data_intel.sales_fixture import (
     FixtureError,
     SaleRow,
 )
+
+_sales_context = partial(_loader, SALES_SOURCE)
 
 
 @pytest.fixture
@@ -109,7 +113,7 @@ def test_successful_exit_closes_owned_connection() -> None:
 def test_loader_failure_opens_no_database_or_yields_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail_loader() -> None:
+    def fail_loader(_requested: object = None) -> None:
         raise FixtureError("fixture_invalid")
 
     monkeypatch.setattr("data_intel._sales_context.load_sales_fixture", fail_loader)

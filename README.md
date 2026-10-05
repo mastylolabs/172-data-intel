@@ -73,9 +73,14 @@ connection or setup errors fail as the safe `runtime_incompatible` classificatio
 The private `_bounded_result.py` foundation validates already-fetched scalar rows,
 converts them to immutable exact cell values, and computes bounded canonical JSON
 and SHA-256 content. It does not execute SQL, create receipts, or serve external
-callers. The generic query executor, full profiling, support retrieval,
-numerical/citation validation, persistence, model calls, UI and deployment remain
-planned. Cloudflare
-Python/SQLite compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for the
-next bounded capability. Full GO permits
+callers. The private `query_engine.py` now adds a reusable `QueryEngine` protocol
+and local SQLite implementation for generic read-only sales SQL. It verifies the
+requested source before opening a fresh database, requires an authorized sales
+read for each query, and returns exact SQL/hash plus complete bounded result
+content with a clear unvalidated status. Execution is capped at 20 rows and
+returns only fixed safe error codes. Receipts, the Python service boundary,
+full profiling, support retrieval, analytical/citation validation, persistence,
+model calls, UI and deployment remain planned. Cloudflare Python/SQLite
+compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for
+the next bounded capability. Full GO permits
 continuing the approved milestones; each retains its report and independent gates.

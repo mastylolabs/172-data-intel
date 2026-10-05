@@ -53,9 +53,9 @@ def _populate_sales(connection: sqlite3.Connection, rows: tuple[SaleRow, ...]) -
 
 
 @contextmanager
-def _sales_context() -> Iterator[_SalesContext]:
+def _sales_context(expected_source: SourceIdentity) -> Iterator[_SalesContext]:
     """Load only the verified sales fixture, install policy, then always close."""
-    fixture = load_sales_fixture()
+    fixture = load_sales_fixture(expected_source)
     try:
         connection = sqlite3.connect(":memory:")
     except (MemoryError, sqlite3.Error):
