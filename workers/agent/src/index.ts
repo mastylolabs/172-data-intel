@@ -25,42 +25,38 @@ export type State = {
   revision: number;
   selected_source: "sales" | "support";
   receipt: ProofReceipt | null;
+  revoked: boolean;
 };
 const initialState = (): State => ({
   version: "1",
   revision: 0,
   selected_source: "sales",
   receipt: null,
+  revoked: false,
 });
-const responseHeaders = {
-  "cache-control": "no-store",
-  "referrer-policy": "no-referrer",
-  "x-content-type-options": "nosniff",
+const visibleState = (state: State): Omit<State, "revoked"> => {
+  const { revoked: _revoked, ...publicState } = state;
+  return publicState;
 };
 const json = (value: unknown, status = 200): Response =>
-  Response.json(value, { status, headers: responseHeaders });
+  Response.json(value, {
+    status,
+    headers: { "cache-control": "no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" },
+  });
 
 const fail = (code: string, status = 400): Response =>
   json({ version: "1", code, stage: "transport", job_id: null, limit: null, provider_reason: null, automatic_retry: false }, status);
-function sameSource(
-  left: { version: string; source_id: string; snapshot_sha256: string; meaning_revision: string },
-  right: { version: string; source_id: string; snapshot_sha256: string; meaning_revision: string },
-): boolean {
-  return (
-    left.source_id === right.source_id &&
-    left.snapshot_sha256 === right.snapshot_sha256 &&
-    left.meaning_revision === right.meaning_revision
-  );
-}
 function cookieValue(request: Request): string | undefined {
   return request.headers.get("cookie")?.match(/(?:^|;\s*)__Host-proof=([a-f0-9]{64})(?:;|$)/)?.[1];
 }
-function sessionToken(request: Request): string {
-  const existing = cookieValue(request);
-  if (existing) return existing;
+function randomToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");
+}
+function sessionToken(request: Request): string {
+  const existing = cookieValue(request);
+  return existing ?? randomToken();
 }
 function validServiceResult(
   receipt: Awaited<ReturnType<typeof validatedResult>>,
@@ -71,14 +67,15 @@ function validServiceResult(
     receipt.job_id === input.request_id &&
     receipt.actual_sql === input.sql &&
     receipt.row_count <= input.max_rows &&
-    sameSource(receipt.source, meta.source) &&
+    receipt.source.source_id === meta.source.source_id &&
+    receipt.source.snapshot_sha256 === meta.source.snapshot_sha256 &&
+    receipt.source.meaning_revision === meta.source.meaning_revision &&
     receipt.schema_revision === meta.schema_revision &&
     receipt.engine_policy === meta.engine_policy &&
     JSON.stringify(receipt.runtime) === JSON.stringify(meta.runtime) &&
     JSON.stringify(receipt.limits) === JSON.stringify(meta.limits)
   );
 }
-
 async function executeSql(
   agent: ProofAgent,
   env: Env,
@@ -90,7 +87,8 @@ async function executeSql(
     worker_version_id: env.CF_VERSION_METADATA?.id ?? null,
   });
   if (!provenanceCheck.success) return fail("runtime_incompatible", 503);
-  const metaResponse = await env.TOOLS.fetch("https://tools/metadata");
+  const signal = AbortSignal.timeout(10_000);
+  const metaResponse = await env.TOOLS.fetch("https://tools/metadata", { signal });
   if (!metaResponse.ok) return fail("python_unavailable", 502);
   const meta = metadata.parse(await boundedJson(metaResponse, 4096));
   const response = await env.TOOLS.fetch("https://tools/query", {
@@ -107,6 +105,7 @@ async function executeSql(
         max_rows: input.max_rows,
       },
     }),
+    signal,
   });
   return consumeResult(agent, response, input, meta, provenanceCheck.data);
 }
@@ -139,7 +138,7 @@ async function consumeResult(
     agents_version: AGENTS_VERSION,
   };
   agent.setState({ ...agent.state, receipt, revision: agent.state.revision + 1 });
-  return json(agent.state);
+  return json(visibleState(agent.state));
 }
 
 export class ProofAgent extends Agent<Env, State> {
@@ -152,7 +151,8 @@ export class ProofAgent extends Agent<Env, State> {
 
   async onRequest(request: Request): Promise<Response> {
     const path = new URL(request.url).pathname;
-    if (request.method === "GET" && path === "/proof/state") return json(this.state);
+    if (this.state.revoked) return fail("access_denied", 403);
+    if (request.method === "GET" && path === "/proof/state") return json(visibleState(this.state));
     if (request.method !== "POST") return fail("not_found", 404);
     if (path === "/proof/query") return fail("unsupported_transport", 422);
     if (!["/proof/source", "/proof/sql", "/proof/reset"].includes(path)) {
@@ -173,14 +173,14 @@ export class ProofAgent extends Agent<Env, State> {
         });
       } else if (path === "/proof/reset") {
         emptyInput.parse(body);
-        this.setState(initialState());
+        this.setState({ ...initialState(), revoked: true });
       } else {
         const input = sqlInput.parse(body);
         if (this.state.selected_source !== "sales") return fail("unsupported_source", 422);
         service = true;
         return await executeSql(this, this.env, input);
       }
-      return json(this.state);
+      return json(visibleState(this.state));
     } catch (error) {
       if (service) return fail("python_unavailable", 502);
       if (error instanceof Error && error.message === "result_limit") return fail("result_limit", 413);
@@ -203,7 +203,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (!url.pathname.startsWith("/proof/")) return fail("not_found", 404);
-    if (!env.PROOF_TOKEN || request.headers.get("authorization") !== `Bearer ${env.PROOF_TOKEN}`) {
+    if (
+      new TextEncoder().encode(env.PROOF_TOKEN ?? "").byteLength < 32 ||
+      request.headers.get("authorization") !== `Bearer ${env.PROOF_TOKEN}`
+    ) {
       return fail("access_denied", 403);
     }
     if (request.headers.has("upgrade")) return fail("access_denied", 403);
@@ -214,8 +217,9 @@ export default {
     if (request.method !== (url.pathname === "/proof/state" ? "GET" : "POST")) {
       return fail("not_found", 404);
     }
-    const token = sessionToken(request);
-    const id = env.ProofAgent.idFromName(await sha256(token));
+    const currentToken = sessionToken(request);
+    const token = url.pathname === "/proof/reset" ? randomToken() : currentToken;
+    const id = env.ProofAgent.idFromName(await sha256(currentToken));
     const forwardHeaders = new Headers(request.headers);
     forwardHeaders.delete("authorization");
     forwardHeaders.delete("cookie");
@@ -223,7 +227,7 @@ export default {
     const headers = new Headers(response.headers);
     headers.set(
       "set-cookie",
-      `__Host-proof=${token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=604800`,
+      `__Host-proof=${response.status === 200 ? token : currentToken}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=604800`,
     );
     return new Response(response.body, { status: response.status, headers });
   },

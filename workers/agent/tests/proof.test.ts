@@ -28,7 +28,7 @@ function setup() {
   );
   const lookup = vi.fn((name: string) => name as unknown as DurableObjectId);
   const env = {
-    PROOF_TOKEN: "test-token",
+    PROOF_TOKEN: "t".repeat(32),
     RUNTIME_MODE: "deployed",
     BUILD_REVISION: "b".repeat(40),
     CF_VERSION_METADATA: { id: "23456789-1234-4234-8234-123456789abc" },
@@ -42,7 +42,7 @@ function setup() {
 function request(path: string, body?: unknown, extra: Record<string, string> = {}): Request {
   return new Request(`https://proof.example${path}`, {
     method: body === undefined ? "GET" : "POST",
-    headers: { authorization: "Bearer test-token", origin: "https://proof.example", ...extra },
+    headers: { authorization: `Bearer ${"t".repeat(32)}`, origin: "https://proof.example", ...extra },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
@@ -60,7 +60,6 @@ describe("restricted native proof bridge", () => {
     }
     expect(lookup).not.toHaveBeenCalled();
   });
-
   it("hashes cookies, resumes a session, and allocates isolated fresh sessions", async () => {
     const { env, lookup } = setup();
     const first = await worker.fetch(request("/proof/state"), env);
@@ -83,8 +82,12 @@ describe("restricted native proof bridge", () => {
     });
     expect((await worker.fetch(request("/proof/sql", input), env)).status).toBe(422);
     expect((await worker.fetch(request("/proof/query", input), env)).status).toBe(422);
-    await worker.fetch(request("/proof/reset", { version: "1" }), env);
-    expect(agent.state).toEqual(agent.initialState);
+    const initial = await worker.fetch(request("/proof/state"), env);
+    const cookie = initial.headers.get("set-cookie")!;
+    const reset = await worker.fetch(request("/proof/reset", { version: "1" }, { cookie }), env);
+    expect(reset.headers.get("set-cookie")).not.toBe(cookie);
+    expect(agent.state).toMatchObject({ ...agent.initialState, revoked: true });
+    expect((await worker.fetch(request("/proof/state", undefined, { cookie }), env)).status).toBe(403);
     expect(tools).not.toHaveBeenCalled();
   });
   it("stores an exact Python receipt with separate Agent provenance", async () => {
@@ -103,7 +106,6 @@ describe("restricted native proof bridge", () => {
       intent: { source: meta.source, sql: input.sql },
     });
   });
-
   it("refuses invalid input without dispatch", async () => {
     const { env, tools } = setup();
     expect((await worker.fetch(request("/proof/sql", { ...input, max_rows: 21 }), env)).status).toBe(
@@ -111,7 +113,6 @@ describe("restricted native proof bridge", () => {
     );
     expect(tools).not.toHaveBeenCalled();
   });
-
   it("bounds request bytes and rejects malformed JSON", async () => {
     const { env, tools } = setup();
     const r = request("/proof/sql", input);
@@ -119,7 +120,6 @@ describe("restricted native proof bridge", () => {
     expect((await worker.fetch(new Request(r, { body: "{" }), env)).status).toBe(400);
     expect(tools).not.toHaveBeenCalled();
   });
-
   it("fails closed on service errors and missing Agent provenance", async () => {
     const failed = setup();
     failed.tools.mockRejectedValue(new Error("private-token"));
