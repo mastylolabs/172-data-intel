@@ -5,6 +5,8 @@ import {
   agentRuntime,
   boundedJson,
   metadata,
+  planInput,
+  planOutput,
   result,
   runtime,
   serviceError,
@@ -80,6 +82,23 @@ describe("Python wire boundary", () => {
     expect(serviceError.safeParse({ code: "private-token", provider_reason: "raw" }).success).toBe(
       false,
     );
+  });
+  it("keeps planner output strict and bounded", () => {
+    expect(planInput.parse({ version: "1", request_id: receipt.job_id, question: "Revenue?" })).toEqual({
+      version: "1",
+      request_id: receipt.job_id,
+      question: "Revenue?",
+    });
+    expect(planOutput.parse({ status: "plan", sql: "SELECT 1", rationale: "aggregate" }).status).toBe("plan");
+    expect(planOutput.parse({ status: "clarify", question: "Which period?" }).status).toBe("clarify");
+    for (const value of [
+      { status: "plan", sql: "SELECT 1", rationale: "" },
+      { status: "plan", sql: "SELECT 1", rationale: "x".repeat(513) },
+      { status: "clarify", question: "\u0085" },
+      { status: "plan", sql: "SELECT 1", rationale: "ok", extra: true },
+    ]) {
+      expect(planOutput.safeParse(value).success).toBe(false);
+    }
   });
   it("bounds SQL by UTF-8 bytes and refuses coercion, extras and whitespace", () => {
     const input = {
