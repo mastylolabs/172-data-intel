@@ -126,7 +126,7 @@ function reconcileDeadline(state: BridgeState): BridgeState {
     Date.parse(active.deadline_at) > Date.now()) return state;
   try {
     const session = finishJob(state.session, active.job_id, active.generation, active.cancel_epoch,
-      { phase: "interrupted", error: { code: "stale_job", stage: "transport" } });
+      { phase: active.phase === "cancel_requested" ? "cancelled" : "interrupted", error: { code: "stale_job", stage: "transport" } });
     return { ...state, session, result: null, result_kind: null };
   } catch { return state; }
 }
