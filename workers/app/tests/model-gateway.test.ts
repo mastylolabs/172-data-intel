@@ -64,6 +64,14 @@ describe("bounded Workers AI planner gateway", () => {
     }
   });
 
+  it("normalizes a model that repeats sales SQL in the query field", async () => {
+    const value = proposal();
+    const repeated = { ...value, query: value.sql };
+    const result = await runPlanner(fake(wrapped(repeated)).env, context(), 100);
+    expect(result.kind).toBe("success");
+    if (result.kind === "success") expect(result.proposal.query).toBeNull();
+  });
+
   it("refuses over-limit input and output without retrying", async () => {
     const fields = Array.from({ length: 3 }, (_, index) => ({ name: `field${index}`, sql_type: "TEXT" as const, nullable: false as const, meaning: "x".repeat(4096), null_count: 0 }));
     const tooLarge = { ...context(), profile: { ...profile, fields } };

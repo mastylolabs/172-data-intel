@@ -114,8 +114,16 @@ function outputJson(raw: unknown): unknown {
   if (typeof response !== "object" || response === null) throw new BoundaryError("model_output_invalid");
   return response;
 }
+function normalizePlannerShape(value: unknown, context: PlannerContext): unknown {
+  if (typeof value !== "object" || value === null || context.source.source_id !== "sales") return value;
+  const proposal = value as Record<string, unknown>;
+  if (proposal.mode === "query" && typeof proposal.sql === "string" && proposal.query === proposal.sql) {
+    return { ...proposal, query: null };
+  }
+  return value;
+}
 function parsePlannerOutput(raw: unknown, context: PlannerContext): AnalystProposal {
-  const parsed = analystProposal.safeParse(outputJson(raw));
+  const parsed = analystProposal.safeParse(normalizePlannerShape(outputJson(raw), context));
   if (!parsed.success || parsed.data.request_id !== context.request_id || !sameSource(parsed.data.source, context.source)) {
     throw new BoundaryError("model_output_invalid");
   }
