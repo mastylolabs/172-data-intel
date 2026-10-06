@@ -181,3 +181,10 @@ class ServiceErrorV2(V2StrictModel):
     limit: ServiceLimitV2 | None
     provider_reason: ProviderReasonV2 | None
     automatic_retry: Literal[False]
+
+    @field_validator("automatic_retry", mode="before")
+    @classmethod
+    def require_false_boolean(cls, value: object) -> bool:
+        if type(value) is not bool or value is not False:
+            raise ValueError("invalid_input")
+        return value

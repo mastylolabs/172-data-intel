@@ -190,3 +190,6 @@ def test_surrogate_text_and_error_contract_are_safe() -> None:
     assert error.automatic_retry is False
     with pytest.raises(ValidationError):
         ServiceErrorV2.model_validate({"code": "secret-provider-error", "stage": "transport"})
+    malformed = error.model_dump(mode="json") | {"automatic_retry": 0}
+    with pytest.raises(ValidationError, match="invalid_input"):
+        ServiceErrorV2.model_validate(malformed)
