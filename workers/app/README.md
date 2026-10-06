@@ -20,9 +20,12 @@ The public routes are `GET /api/state` and same-origin `POST /api/source`,
 and returns a durable 202 job snapshot. The Agent loads the approved catalog,
 loads the sales profile when needed, and calls the bounded free-only planner;
 the public state exposes only the validated proposal or clarification, safe
-model failure, and the remaining per-session model-call budget. A planner job
-does not publish a candidate or answer yet; those are the next orchestration
-slice.
+model failure, and the remaining per-session model-call budget. A serialized
+global `PlannerBudget` Durable Object admits at most 24 free planner starts per
+UTC day. Ask jobs allow the bounded tool work plus the 30-second planner
+timeout; existing profile/query/search jobs retain their shorter deadline. A
+planner job does not publish a candidate or answer yet; those are the next
+orchestration slice.
 Jobs return a 202 snapshot and are polled through `/api/state`. Sessions are
 isolated by an opaque cookie, reset rotates the cookie, and selected source,
 active job, terminal receipts, replay outcomes, expiry, cancellation, and reset

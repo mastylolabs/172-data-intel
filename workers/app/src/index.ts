@@ -1,8 +1,9 @@
 import { Agent, getAgentByName, type Connection } from "agents";
+import { DurableObject as DurableObjectBase } from "cloudflare:workers";
 import { z } from "zod";
 import { approvedSource, catalogV2, dataProfileV2, validatedDomainEnvelope, type DomainKind, type Envelope, type Source } from "./contracts";
 import {
-  BridgeError, askRequest, buildToolBody, executeTool, profileRequest, queryRequest, readJson, searchRequest,
+  BridgeError, askRequest, buildToolBody, executeTool, profileRequest, queryRequest, readBoundedText, readJson, searchRequest,
   sourceRequest, type ResultKind, type TransportEnv,
 } from "./transport";
 import { runPlanner, type ModelEnv, type PlannerFailure, type PlannerResult } from "./model_gateway";
@@ -14,6 +15,7 @@ import {
 
 export interface Env extends TransportEnv, ModelEnv {
   AppAgent: DurableObjectNamespace<AppAgent>;
+  PlannerBudget: DurableObjectNamespace<PlannerBudget>;
   TOOLS_BUILD_REVISION?: string;
   TOOLS_WORKER_VERSION_ID?: string;
 }
@@ -37,7 +39,9 @@ const routes: Record<string, string> = {
   "/api/search": "POST", "/api/cancel": "POST", "/api/reset": "POST",
 };
 const MODEL_CALL_BUDGET = 3;
+const GLOBAL_MODEL_CALL_BUDGET = 24;
 const emptyBody = z.strictObject({ version: z.literal("2") });
+const budgetRequest = z.strictObject({ version: z.literal("1") });
 const plannerStateSchema = z.strictObject({
   request_id: z.uuid(), job_id: z.uuid(), source: approvedSource,
   generation: z.number().int().nonnegative(), cancel_epoch: z.number().int().nonnegative(),
@@ -51,6 +55,27 @@ const json = (value: unknown, status = 200): Response => Response.json(value, {
   status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" },
 });
 const errorResponse = (error: BridgeError): Response => json({ version: "2", code: error.code }, error.status);
+type PlannerBudgetState = { version: "1"; utc_day: string; model_calls: number };
+export class PlannerBudget extends DurableObjectBase<Env> {
+  constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
+  async fetch(request: Request): Promise<Response> {
+    if (request.method !== "POST") return json({ version: "1", admitted: false }, 404);
+    try {
+      budgetRequest.parse(await readJson(request, 1024));
+      let admitted = false;
+      await this.ctx.blockConcurrencyWhile(async () => {
+        const day = new Date().toISOString().slice(0, 10);
+        const stored = await this.ctx.storage.get<PlannerBudgetState>("budget");
+        const current = stored?.utc_day === day ? stored : { version: "1" as const, utc_day: day, model_calls: 0 };
+        if (current.model_calls < GLOBAL_MODEL_CALL_BUDGET) {
+          await this.ctx.storage.put("budget", { ...current, model_calls: current.model_calls + 1 });
+          admitted = true;
+        }
+      });
+      return json({ version: "1", admitted });
+    } catch { return json({ version: "1", admitted: false }, 400); }
+  }
+}
 function initialBridgeState(): BridgeState {
   return { version: "1", session: initialSessionState(), result: null, result_kind: null,
     revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 };
@@ -161,11 +186,11 @@ function requestHash(value: unknown): Promise<string> {
   return crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))).then((hash) =>
     Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join(""));
 }
-function newJob(source: Source, request: JobRequest, hash: string): JobV2 {
+function newJob(source: Source, request: JobRequest, hash: string, deadlineMs = 15_000): JobV2 {
   const now = new Date();
   return { job_id: crypto.randomUUID(), request_id: String(request.body.request_id), input_sha256: hash, source,
     generation: 0, cancel_epoch: 0, phase: "queued", started_at: now.toISOString(),
-    deadline_at: new Date(now.getTime() + 15_000).toISOString(), active_run_id: crypto.randomUUID(), error: null, clarification: null };
+    deadline_at: new Date(now.getTime() + deadlineMs).toISOString(), active_run_id: crypto.randomUUID(), error: null, clarification: null };
 }
 function parseJob(path: string, value: unknown): { kind: ResultKind; body: Record<string, unknown> } {
   try {
@@ -182,6 +207,16 @@ function capability(source: Source, kind: ResultKind): void {
 export function trustedRuntime(env: Env, receipt: Envelope<unknown>): boolean {
   return env.RUNTIME_MODE === "local" || (receipt.runtime.build_revision === env.TOOLS_BUILD_REVISION &&
     receipt.runtime.worker_version_id === env.TOOLS_WORKER_VERSION_ID);
+}
+async function admitPlannerBudget(env: Env): Promise<boolean> {
+  const id = env.PlannerBudget.idFromName("m4-global");
+  const response = await env.PlannerBudget.get(id).fetch(new Request("https://planner-budget/admit", {
+    method: "POST", body: JSON.stringify({ version: "1" }), headers: { "content-type": "application/json" },
+  }));
+  if (!response.ok) throw new Error("budget_unavailable");
+  const value = JSON.parse(await readBoundedText(response.body, 1024, 502)) as { admitted?: unknown };
+  if (typeof value.admitted !== "boolean") throw new Error("budget_invalid");
+  return value.admitted;
 }
 function sameSource(left: Source, right: Source): boolean {
   return left.source_id === right.source_id && left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;
@@ -240,15 +275,22 @@ export class AppAgent extends Agent<Env, BridgeState> {
       }
       const runId = job.active_run_id;
       if (runId === null) throw new Error("missing_run");
+      if (!(await admitPlannerBudget(this.env))) {
+        const finished = finishJob(current.session, job.job_id, job.generation, job.cancel_epoch, { phase: "budget_exhausted", error: null });
+        this.setState(rememberPlanner({ ...current, session: finished, planner: budgetPlannerState(job) }, job));
+        return;
+      }
       const catalogReceipt = await executeTool(this.env, "catalog", null, null);
       current = await validState(this);
       if (!ownsPlannerJob(current, job)) return;
+      if (!trustedRuntime(this.env, catalogReceipt)) throw new Error("runtime_identity");
       const catalog = catalogV2.parse(catalogReceipt.payload);
       let profile = null;
       if (job.source.source_id === "sales") {
         const profileReceipt = await executeTool(this.env, "profile", buildToolBody("profile", job.job_id, runId, job.source, {}), { jobId: job.job_id, runId });
         current = await validState(this);
         if (!ownsPlannerJob(current, job)) return;
+        if (!trustedRuntime(this.env, profileReceipt)) throw new Error("runtime_identity");
         profile = dataProfileV2.parse(profileReceipt.payload);
       }
       this.setState({ ...current, model_calls: current.model_calls + 1 });
@@ -257,7 +299,10 @@ export class AppAgent extends Agent<Env, BridgeState> {
       if (!ownsPlannerJob(current, job)) return;
       const planned = plannerState(job, result);
       const phase = result.kind === "success" && result.proposal.status === "clarify" ? "awaiting_clarification" : result.kind === "failure" ? "failed" : "completed";
-      const finished = finishJob(current.session, job.job_id, job.generation, job.cancel_epoch, { phase, error: null });
+      const session = result.kind === "success" && result.proposal.status === "clarify"
+        ? parseSessionState({ ...current.session, active_job: { ...current.session.active_job!, clarification: { question: result.proposal.clarification!, created_at: new Date().toISOString() } } })
+        : current.session;
+      const finished = finishJob(session, job.job_id, job.generation, job.cancel_epoch, { phase, error: null });
       this.setState(rememberPlanner({ ...current, session: finished, planner: planned }, job));
     } catch {
       try {
@@ -294,7 +339,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
     const source = state.session.selected_source;
     if (source === null) throw new BridgeError("source_required", 422);
     const hash = await requestHash(body);
-    const job = newJob(source, { kind: "ask", body }, hash);
+    const job = newJob(source, { kind: "ask", body }, hash, 45_000);
     job.generation = state.session.generation; job.cancel_epoch = state.session.cancel_epoch;
     const outcome = beginJob(state.session, job);
     if (outcome.kind === "replay") {
@@ -304,7 +349,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
       throw new BridgeError("request_outcome_unavailable", 409);
     }
     if (outcome.kind !== "new") throw new BridgeError(outcome.code, 409);
-    this.setState({ ...state, session: storeJob(state.session, job), planner: null });
+    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null, planner: null });
     this.ctx.waitUntil(this.completePlanner(job, String(body.question)));
     return json(publicState(this.state), 202);
   }
