@@ -108,6 +108,17 @@ v1 service and TypeScript consumers. A later private v2 caller must explicitly
 opt in; this slice adds no route or model integration. SQL/result correctness
 does not establish analytical approval.
 
+M3-P3 adds the pinned 16-message [synthetic support source](docs/fixtures/support-demo.md).
+`load_support_demo()` returns immutable typed messages, the full `support-demo.v1`
+identity, schema and field meanings after verifying the exact byte/hash/count
+manifest and bounded strict JSONL. It preserves original text and UTC timestamps;
+source content remains untrusted. Search, support profiling and service exposure
+are later slices.
+
+```sh
+uv run python -c 'from data_intel.support_demo import load_support_demo; print(len(load_support_demo().rows))'
+```
+
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
 then installs the private read-only, authorizer, limit and progress controls. Its

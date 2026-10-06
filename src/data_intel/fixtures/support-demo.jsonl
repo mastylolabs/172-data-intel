@@ -1,0 +1,16 @@
+{"message_id":"M001","timestamp":"2026-03-01T09:00:00Z","channel":"billing","customer":"Acme","text":"Our February invoice has a duplicate Pro charge. Please check the billing line items."}
+{"message_id":"M002","timestamp":"2026-03-02T10:00:00Z","channel":"support","customer":"Bright","text":"The CSV export times out when downloading more than 500 rows. A smaller export succeeds."}
+{"message_id":"M003","timestamp":"2026-03-03T08:30:00Z","channel":"support","customer":"Cedar","text":"I cannot log in after resetting my password. The login page loops back to sign in."}
+{"message_id":"M004","timestamp":"2026-03-04T14:00:00Z","channel":"billing","customer":"Delta","text":"Can you explain the Enterprise upgrade invoice? I expected a prorated billing amount."}
+{"message_id":"M005","timestamp":"2026-03-05T11:00:00Z","channel":"support","customer":"Acme","text":"The CSV export is missing the region column. We need that field in our sales report."}
+{"message_id":"M006","timestamp":"2026-03-06T12:00:00Z","channel":"support","customer":"Bright","text":"Login works now after clearing browser cookies. Thank you for the password reset guidance."}
+{"message_id":"M007","timestamp":"2026-03-07T09:00:00Z","channel":"billing","customer":"Cedar","text":"We received two invoice emails for the same billing period. The invoice numbers are identical."}
+{"message_id":"M008","timestamp":"2026-03-08T15:00:00Z","channel":"support","customer":"Delta","text":"Dashboard charts load slowly on mobile. Desktop performance is fine."}
+{"message_id":"M009","timestamp":"2026-03-09T13:00:00Z","channel":"support","customer":"Acme","text":"The export timeout still happens for large CSV reports. Please let us know when a fix is available."}
+{"message_id":"M010","timestamp":"2026-03-10T10:00:00Z","channel":"billing","customer":"Bright","text":"Our invoice shows the old billing address. How do I update it before the next invoice?"}
+{"message_id":"M011","timestamp":"2026-03-11T16:00:00Z","channel":"support","customer":"Cedar","text":"The API returns a rate limit error during our nightly sync. Could we space requests out?"}
+{"message_id":"M012","timestamp":"2026-03-12T09:30:00Z","channel":"support","customer":"Delta","text":"CSV export completed after reducing the date range to one week. The full month still times out."}
+{"message_id":"M013","timestamp":"2026-03-13T08:00:00Z","channel":"support","customer":"Acme","text":"Please add dark mode to the dashboard. This is a feature request, not a login issue."}
+{"message_id":"M014","timestamp":"2026-03-14T12:00:00Z","channel":"billing","customer":"Bright","text":"The credit for our duplicate invoice charge arrived today. Thanks for resolving the billing issue."}
+{"message_id":"M015","timestamp":"2026-03-15T14:00:00Z","channel":"support","customer":"Cedar","text":"The CSV export includes the region column again. The report matches the dashboard now."}
+{"message_id":"M016","timestamp":"2026-03-16T17:00:00Z","channel":"support","customer":"Delta","text":"The password reset email takes ten minutes to arrive. I can log in once it arrives."}
