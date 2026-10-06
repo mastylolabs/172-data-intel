@@ -44,8 +44,8 @@ const json = (value: unknown, status = 200): Response =>
     headers: { "cache-control": "no-store", "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" },
   });
 
-const fail = (code: string, status = 400): Response =>
-  json({ version: "1", code, stage: "transport", job_id: null, limit: null, provider_reason: null, automatic_retry: false }, status);
+const fail = (code: string, status = 400, stage = "transport"): Response =>
+  json({ version: "1", code, stage, job_id: null, limit: null, provider_reason: null, automatic_retry: false }, status);
 function cookieValue(request: Request): string | undefined {
   return request.headers.get("cookie")?.match(/(?:^|;\s*)__Host-proof=([a-f0-9]{64})(?:;|$)/)?.[1];
 }
@@ -183,8 +183,8 @@ export class ProofAgent extends Agent<Env, State> {
       return json(visibleState(this.state));
     } catch (error) {
       if (service) return fail("python_unavailable", 502);
-      if (error instanceof Error && error.message === "result_limit") return fail("result_limit", 413);
-      return fail("invalid_input", 400);
+      if (error instanceof Error && error.message === "result_limit") return fail("result_limit", 413, "input");
+      return fail("invalid_input", 400, "input");
     } finally {
       this.busy = false;
     }
