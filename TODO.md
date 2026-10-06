@@ -33,7 +33,12 @@
   bounded Llama access preflight failed with daily free allocation rejection; real
   AI proof remains pending. Continue independent work from stable merged contracts;
   no billing change or false live-success claim.
-- M3–M5, planned: synthetic fixture meanings/profiles, real SQL/retrieval and
+- M3 active: the frozen analytical source contracts are merged. P1 adds the
+  distinct 24-row sales-demo fixture and strict immutable loading only; complete
+  independent QA/review and guarded merge before starting dependent profiling
+  and explicit generic-engine integration. Support loading/retrieval and typed
+  deterministic validation remain later bounded slices.
+- M4–M5, planned: real SQL/retrieval and
   deterministic validation; independently validated durable conversations;
   shareable chat and reviewed Cloudflare deployment. See the delivery plan.
 - Preserve original architecture and the separate reference application,
