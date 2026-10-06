@@ -55,10 +55,11 @@ blocked delivery.
 The dry run is local packaging evidence. No private Worker upload, deployed
 service-binding call, SQLite control probe, Durable Object, Agent, or Workers AI
 call was run in P3a. The previously recorded free-only Llama preflight quota
-failure remains a failure and was not converted into success. Coverage gaps are
-the defensive serialization, fixture/adapter failure branches, and some empty
-body paths; independent probes exercised these without changing the measured
-suite.
+failure remains a failure and was not converted into success. Coverage measures
+the `data_intel` and configured script sources; the Worker entrypoint is
+mocked/excluded from that source selection. Gaps are the defensive serialization,
+fixture/adapter failure branches, and some empty body paths; independent probes
+exercised these without changing the measured suite.
 
 ## Hardest technical problem
 
@@ -66,9 +67,10 @@ The hardest problem was preserving truthful build and transport provenance acros
 the Python/Worker boundary. Timestamp-based vendoring could produce a successful
 artifact that did not contain the current source, and a source change during the
 build could make the reviewed revision label false. Forced synchronization,
-exact source-byte comparison, runtime-lock preservation, and a post-build clean
-revision/HEAD check make those failures explicit. A small shared reader then keeps
-runtime FFI failures inside the typed transport boundary. This keeps the service
+exact source-byte comparison, runtime-lock preservation, and the post-build clean
+revision/HEAD check in PR #13 make those failures explicit. PR #15's small shared
+reader then keeps runtime FFI failures inside the typed transport boundary. This
+keeps the service
 contract reusable for the Agent bridge without claiming that local packaging is
 deployed execution.
 
