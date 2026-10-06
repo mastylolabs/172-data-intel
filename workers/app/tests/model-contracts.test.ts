@@ -68,10 +68,12 @@ describe("model and publication contracts", () => {
     const broad = { ...supportCandidate, text: "This proves whole-corpus prevalence.", claims: [{ ...supportCandidate.claims[0], text: "This proves prevalence." }] };
     const trend = { ...supportCandidate, text: "This trend is representative.", claims: [{ ...supportCandidate.claims[0], text: "This trend is representative." }] };
     const absence = { ...supportCandidate, text: "No customer reported an export failure.", claims: [{ ...supportCandidate.claims[0], text: "No customer reported an export failure." }] };
+    const mixed = { ...supportCandidate, text: `${TARGETED_LIMITATIONS[1]} No customer reported an export failure.` };
     expect(validateCandidate(missing, supportProposal, supportContext).issues).toContain("missing_search_limitations");
     expect(validateCandidate(broad, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
     expect(validateCandidate(trend, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
     expect(validateCandidate(absence, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
+    expect(validateCandidate(mixed, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
   });
 
   it("returns clarification without publishing and rejects validator request mismatch", async () => {
@@ -88,6 +90,8 @@ describe("model and publication contracts", () => {
     expect(validateCandidate({ ...candidate, claims: [{ ...candidate.claims[0], evidence: { ...candidate.claims[0].evidence, result_ids: [answerId] } }] }, profileProposal, context).ok).toBe(false);
     const alteredInput = { ...salesContext, calculations: [{ ...salesContext.calculations[0], input_receipts: [{ receipt_id: id, payload_sha256: "b".repeat(64), source: sales }] }] };
     expect(validateCandidate(candidate, profileProposal, alteredInput).ok).toBe(false);
+    const extraInput = { ...salesContext, calculations: [{ ...salesContext.calculations[0], input_receipts: [{ ...salesContext.calculations[0].input_receipts[0], receipt_id: id }, { receipt_id: answerId, payload_sha256: hash, source: sales }] }] };
+    expect(validateCandidate(candidate, profileProposal, extraInput).ok).toBe(false);
   });
 
   it("rejects numeric support claims even when routed through a calculation", () => {

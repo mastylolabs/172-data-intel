@@ -179,15 +179,19 @@ function checkEvidence(claim: CandidateClaim, candidate: GroundedCandidate, cont
   const evidence = claim.evidence;
   if (evidence.type === "calculation") {
     const calculation = context.calculations.find((item) => item.calculation_id === evidence.calculation_id);
-    const sameInputs = calculation !== undefined && calculation.result_ids.length === evidence.result_ids.length &&
+    const sameInputs = calculation !== undefined && new Set(evidence.result_ids).size === evidence.result_ids.length &&
+      new Set(calculation.result_ids).size === calculation.result_ids.length && calculation.result_ids.length === evidence.result_ids.length &&
       calculation.result_ids.every((id) => evidence.result_ids.includes(id));
+    const exactReceipts = calculation !== undefined && calculation.input_receipts.length === calculation.result_ids.length &&
+      new Set(calculation.input_receipts.map((item) => item.receipt_id)).size === calculation.input_receipts.length &&
+      calculation.input_receipts.every((item) => calculation.result_ids.includes(item.receipt_id));
     const boundInputs = evidence.result_ids.every((id) => {
       const result = context.results.find((item) => item.receipt_id === id);
       const receipt = calculation?.input_receipts.find((item) => item.receipt_id === id);
       return result !== undefined && sameSource(result.source, candidate.source) && receipt !== undefined &&
         receipt.payload_sha256 === result.payload_sha256 && sameSource(receipt.source, result.source);
     });
-    if (calculation === undefined || !sameSource(calculation.source, candidate.source) || !sameInputs || !boundInputs ||
+    if (calculation === undefined || !sameSource(calculation.source, candidate.source) || !sameInputs || !exactReceipts || !boundInputs ||
       evidence.value !== calculation.value || evidence.unit !== calculation.unit ||
       (claim.kind === "numeric" && (claim.value !== evidence.value || claim.unit !== evidence.unit))) {
       issues.push("unknown_calculation");
@@ -227,9 +231,9 @@ export function validateCandidate(
   if (value.mode === "search" && value.claims.some((claim) => claim.kind !== "citation")) {
     issues.push("unsupported_search_claim");
   }
-  const searchText = [value.text, ...value.claims.map((claim) => claim.text)].join(" ");
-  const scopedNoHit = /no\s+(?:matching\s+)?messages?\s+(?:were\s+)?found\s+in\s+the\s+declared\s+filtered\s+scope/i.test(value.text);
-  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority|trend|every|all|none|most|rate|percentage|percent|\bno\b|\bnobody\b|\bnothing\b)/i.test(searchText) && !scopedNoHit) {
+  const scopedNoHit = /(?:no\s+(?:matching\s+)?messages?\s+(?:were\s+)?found|found\s+no\s+matching\s+messages?)\s+in\s+the\s+declared\s+filtered\s+scope/i;
+  const searchText = [value.text.replace(scopedNoHit, ""), ...value.claims.map((claim) => claim.text)].join(" ");
+  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority|trend|every|all|none|most|rate|percentage|percent|\bno\b|\bnobody\b|\bnothing\b|\bzero\s+(?:customers?|messages?|tickets?)\b|\bwithout\s+(?:any\s+)?(?:customers?|messages?|tickets?)\b|\b(?:customers?|messages?|tickets?)\s+(?:frequently|often|usually|commonly)\b)/i.test(searchText)) {
     issues.push("unsupported_search_claim");
   }
   for (const claim of value.claims) checkEvidence(claim, value, context, issues);
