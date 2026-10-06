@@ -237,6 +237,19 @@ def _runtime_info(runtime: RuntimeProvenanceV2) -> RuntimeInfo:
     )
 
 
+def _execute_query_payload(request: QueryRequestV2, runtime: RuntimeProvenanceV2) -> QueryResultV2:
+    try:
+        legacy = QueryServiceRequest(version="1", job_id=request.job_id, intent=request.intent)
+    except ValidationError:
+        raise QueryFailure("invalid_input") from None
+    result = adapt_query(
+        legacy,
+        SQLiteQueryEngine(allow_demo_source=True),
+        _runtime_info(runtime),
+    )
+    return QueryResultV2.model_validate(result.model_dump(mode="python") | {"version": "2"})
+
+
 def _query_v2(body: bytes, runtime: RuntimeProvenanceV2) -> tuple[int, bytes]:
     if len(body) > QUERY_BODY_BYTES:
         return _error("result_limit", "input")
@@ -249,18 +262,14 @@ def _query_v2(body: bytes, runtime: RuntimeProvenanceV2) -> tuple[int, bytes]:
     if request.source != DEMO_SOURCE:
         return _error("source_mismatch", "query", request.job_id, request.run_id)
     try:
-        legacy = QueryServiceRequest(version="1", job_id=request.job_id, intent=request.intent)
-    except ValidationError:
-        return _error("invalid_input", "input", request.job_id, request.run_id)
-    try:
-        result = adapt_query(
-            legacy,
-            SQLiteQueryEngine(allow_demo_source=True),
-            _runtime_info(runtime),
+        payload = _execute_query_payload(request, runtime)
+        identity = ToolRequestV2(
+            version="2", job_id=request.job_id, run_id=request.run_id, source=request.source
         )
-        payload = QueryResultV2.model_validate(result.model_dump(mode="python") | {"version": "2"})
+        envelope = _envelope(payload, runtime, identity)
     except QueryFailure as error:
-        return _error(error.code, "query", request.job_id, request.run_id)
+        stage: V2Stage = "input" if error.code == "invalid_input" else "query"
+        return _error(error.code, stage, request.job_id, request.run_id)
     except ValidationError as error:
         code: ServiceErrorCodeV2 = (
             "result_limit"
@@ -268,10 +277,7 @@ def _query_v2(body: bytes, runtime: RuntimeProvenanceV2) -> tuple[int, bytes]:
             else "invalid_result"
         )
         return _error(code, "query", request.job_id, request.run_id)
-    identity = ToolRequestV2(
-        version="2", job_id=request.job_id, run_id=request.run_id, source=request.source
-    )
-    return _json_response(_envelope(payload, runtime, identity))
+    return _json_response(envelope)
 
 
 def _search_v2(body: bytes, runtime: RuntimeProvenanceV2) -> tuple[int, bytes]:

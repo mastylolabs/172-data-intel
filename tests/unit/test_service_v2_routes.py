@@ -172,6 +172,17 @@ def test_query_route_rejects_historical_source_and_input_limits() -> None:
     assert json.loads(body)["stage"] == "input"
 
 
+def test_query_route_maps_complete_envelope_overflow_to_result_limit() -> None:
+    from data_intel.sales_demo import DEMO_SOURCE
+
+    value = "x" * 150
+    columns = ", ".join(f"'{value}' AS c{index}" for index in range(4))
+    wire = json.loads(_query_request(DEMO_SOURCE, f"SELECT {columns} FROM main.sales LIMIT 20"))
+    status, body = handle_service_v2("POST", "/v2/query", json.dumps(wire).encode(), _runtime())
+    assert status == 413
+    assert json.loads(body)["code"] == "result_limit"
+
+
 def test_search_route_returns_exact_targeted_ids_and_quotes() -> None:
     status, body = handle_service_v2(
         "POST", "/v2/search", _search_request(SUPPORT_SOURCE), _runtime()
