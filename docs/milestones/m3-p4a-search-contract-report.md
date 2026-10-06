@@ -2,9 +2,9 @@
 
 ## Result
 
-M3-P4a is complete and merged in [PR #35](https://github.com/mastylolabs/172-data-intel/pull/35). It freezes strict `SearchRequestV2`, `SearchHitV2` and `SearchReceiptV2` contracts, deterministic ASCII token policy, exact filter/request/source invariants, fixed coverage limitations, canonical UTF-8 serialization and payload hashing with an 8,192-byte receipt ceiling. It does not scan the support corpus or publish search results. The merged `main` revision is `e4ddb81810659ffb06f9f92f7f400816a793a370`.
+M3-P4a is complete and merged in [PR #35](https://github.com/mastylolabs/172-data-intel/pull/35). It freezes strict `SearchRequestV2`, `SearchHit` and `SearchReceiptV2` contracts, deterministic ASCII token policy, exact filter/request/source invariants, fixed coverage limitations, canonical UTF-8 serialization and payload hashing with an 8,192-byte receipt ceiling. It does not scan the support corpus or publish search results. The merged `main` revision is `e4ddb81810659ffb06f9f92f7f400816a793a370`.
 
-A provider review found and required one correction before merge: receipts now require `returned_count == min(matched_count, max_hits)`, so positive matches cannot be silently omitted when capacity remains. The corrected head added a discriminating regression and an independent 180-case count matrix.
+A provider review found and required one correction before merge: receipts now require `returned_count == min(matched_count, max_hits)`, so positive matches cannot be silently omitted when capacity remains. The corrected head added a discriminating regression; independent QA separately exercised a 180-case count matrix.
 
 ## Verification
 
@@ -21,7 +21,7 @@ The first provider review exposed a real invariant gap: a positive match could h
 
 ## Hardest technical problem
 
-The hardest problem was making the receipt itself enforce evidence completeness without coupling it to an execution implementation. Strict request/receipt models validate source identity, filter/count consistency, token bounds, fixed limitations, immutable hits and canonical payload limits. The corrected count invariant prevents silent omission while still allowing deliberate top-hit omission only when `matched_count` exceeds `max_hits`.
+The hardest problem was making the receipt itself enforce evidence completeness without coupling it to an execution implementation. Strict request/receipt models validate source identity, request filter syntax, count invariants, token bounds, fixed limitations, immutable hits and canonical payload limits; P4b must validate that returned hits belong to the requested filters. The corrected count invariant prevents silent omission while still allowing deliberate top-hit omission only when `matched_count` exceeds `max_hits`.
 
 ## Next milestone
 
