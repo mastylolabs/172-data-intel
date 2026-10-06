@@ -1,9 +1,11 @@
-# Agent wire foundation (P3b-1)
+# Restricted native Agent bridge (P3b-2)
 
-This project validates the existing private Python service wire boundary. It does
-not run an Agent, expose HTTP routes, call AI, or establish deployed compatibility.
-Wrangler configuration is deferred to P3b-2. The next reviewed slice adds the native
-Agent and restricted engine proof bridge using the private `TOOLS` binding.
+This project exposes the operator-only `/proof/*` surface through a native
+Cloudflare Agent backed by a SQLite Durable Object. The outer Worker checks the
+bearer token before Durable Object lookup, hashes a server-issued cookie for
+session identity, and forwards only the restricted proof routes. Agent state
+writes are server-only; source selection and reset are synchronous, and `/proof/sql`
+calls the private Python `TOOLS` service binding.
 
 ```sh
 make typescript-gate
@@ -15,8 +17,13 @@ typecheck and Vitest tests. The existing CI quality workflow therefore enforces
 these checks alongside the Python gate.
 
 The Agent project pins Agents SDK 0.26.0, Zod 4.6.5 and Vitest 3.2.7. The Python
-tools Worker retains its separately reviewed Wrangler 4.127.1. Credentials, public
-routes and deployment authorization belong to the dependent bridge/deployment work.
+tools Worker retains its separately reviewed Wrangler 4.127.1. The checked-in
+`wrangler.jsonc` declares the `ProofAgent` SQLite migration and private `TOOLS`
+service binding; deployment credentials and authorization remain operator-owned.
+
+This slice intentionally defers LLM planning, uploads, frontend routes, and async
+job lifecycle. `/proof/query` is reserved and returns `unsupported_transport`;
+the synchronous engine receipt is not an AI answer or a deployed lifecycle claim.
 
 `contracts.ts` forbids unknown fields, pins the source/policy limits, bounds SQL
 and typed cells, checks result shape, and hashes the Python canonical result

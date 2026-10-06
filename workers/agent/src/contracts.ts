@@ -139,6 +139,23 @@ export const sqlInput = z.strictObject({
   sql: text(8000),
   max_rows: z.number().int().min(1).max(20),
 });
+export const emptyInput = z.strictObject({ version: z.literal("1") });
+export const sourceInput = z.strictObject({
+  version: z.literal("1"),
+  source: z.enum(["sales", "support"]),
+});
+export type ProofReceipt = z.infer<typeof result> & {
+  proof_kind: "engine" | "ai_chain";
+  ai_chain_complete: boolean;
+  model: string | null;
+  prompt_revision: "m2-sql.v1" | null;
+  model_calls: 0 | 1;
+  agent_runtime_mode: "local" | "deployed";
+  agent_build_revision: string | null;
+  agent_worker_version_id: string | null;
+  agents_version: "0.26.0";
+};
+export const AGENTS_VERSION = "0.26.0" as const;
 export const serviceError = z.strictObject({
   version: z.literal("1"),
   code: z.enum([
