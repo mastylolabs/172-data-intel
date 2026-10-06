@@ -119,9 +119,9 @@ def test_real_search_receipt_round_trips_through_json_envelope() -> None:
     receipt = search_support(SearchRequestV2(source=SUPPORT_SOURCE, query="export", max_hits=2))
     envelope = ServiceEnvelopeV2[SearchReceiptV2](
         version="2",
-        job_id=None,
-        run_id=None,
-        receipt_id=None,
+        job_id=JOB_ID,
+        run_id=RUN_ID,
+        receipt_id=RUN_ID,
         payload=receipt,
         payload_sha256=payload_sha256(receipt),
         runtime=_runtime(),
@@ -130,6 +130,34 @@ def test_real_search_receipt_round_trips_through_json_envelope() -> None:
         ServiceEnvelopeV2[SearchReceiptV2].model_validate_json(envelope.model_dump_json())
         == envelope
     )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "version",
+        "schema_revision",
+        "search_policy",
+        "coverage",
+        "limitations",
+        "analytical_validated",
+    ],
+)
+def test_real_receipt_rejects_omitted_defaulted_wire_fields(field: str) -> None:
+    receipt = search_support(SearchRequestV2(source=SUPPORT_SOURCE, query="export", max_hits=2))
+    envelope = ServiceEnvelopeV2[SearchReceiptV2](
+        version="2",
+        job_id=JOB_ID,
+        run_id=RUN_ID,
+        receipt_id=RUN_ID,
+        payload=receipt,
+        payload_sha256=payload_sha256(receipt),
+        runtime=_runtime(),
+    )
+    wire = json.loads(envelope.model_dump_json())
+    del wire["payload"][field]
+    with pytest.raises(ValidationError, match="invalid_result"):
+        ServiceEnvelopeV2[SearchReceiptV2].model_validate_json(json.dumps(wire))
 
 
 def test_runtime_provenance_requires_deployed_worker_metadata() -> None:

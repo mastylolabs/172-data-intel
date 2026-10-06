@@ -34,10 +34,10 @@ class V2StrictModel(BaseModel):
         return value
 
 
-def canonical_json(value: BaseModel) -> bytes:
+def _canonical_bytes(value: object) -> bytes:
     try:
         return json.dumps(
-            value.model_dump(mode="json"),
+            value,
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
@@ -45,6 +45,10 @@ def canonical_json(value: BaseModel) -> bytes:
         ).encode("utf-8")
     except (TypeError, UnicodeError, ValueError) as error:
         raise ValueError("invalid_result") from error
+
+
+def canonical_json(value: BaseModel) -> bytes:
+    return _canonical_bytes(value.model_dump(mode="json"))
 
 
 def payload_sha256(payload: BaseModel) -> str:
@@ -72,6 +76,8 @@ PayloadT = TypeVar("PayloadT", bound=BaseModel)
 
 
 class ServiceEnvelopeV2(V2StrictModel, Generic[PayloadT]):  # noqa: UP046
+    """Common envelope; only catalog responses may use three explicit null IDs."""
+
     model_config = ConfigDict(extra="forbid", frozen=True, strict=False)
     version: Literal["2"]
     job_id: UUID | None
@@ -90,6 +96,11 @@ class ServiceEnvelopeV2(V2StrictModel, Generic[PayloadT]):  # noqa: UP046
         arguments = metadata.get("args", ()) if isinstance(metadata, dict) else ()
         payload_type = arguments[0] if arguments else None
         if isinstance(payload_type, type) and issubclass(payload_type, BaseModel):
+            if (
+                value.get("payload_sha256")
+                != sha256(_canonical_bytes(value["payload"])).hexdigest()
+            ):
+                raise ValueError("invalid_result")
             raw_payload = json.dumps(value["payload"], ensure_ascii=False, allow_nan=False)
             return {**value, "payload": payload_type.model_validate_json(raw_payload)}
         return value
