@@ -34,9 +34,10 @@
   AI proof remains pending. Continue independent work from stable merged contracts;
   no billing change or false live-success claim.
 - M3 active: P1's distinct 24-row sales-demo fixture and strict immutable loader
-  are reviewed and merged. P2a adds strict sales profile receipt models and
-  bounded canonical serialization; obtain independent QA/review and guarded
-  merge before P2b's deterministic whole-source profile and deadline checks.
+  are reviewed and merged, as are P2a's strict sales profile receipt models and
+  bounded canonical serialization. P2b adds deterministic whole-source profiling,
+  canonical payload hashes and deadline/failure checks; complete its independent
+  QA/review and guarded merge before dependent generic-engine integration.
   Explicit generic-engine integration, support loading/retrieval and typed
   deterministic validation remain later bounded slices.
 - M4–M5, planned: real SQL/retrieval and
