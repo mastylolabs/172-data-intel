@@ -1,5 +1,10 @@
 # Delivery context
 
+- Public app foundation: `workers/app` now contains source/question/proposal
+  contracts, bounded common v2 envelope hashing and role prompts. Next add strict
+  domain receipts and candidate/Validator schemas before budgeted orchestration,
+  fenced publication and web chat. No app route or resource is configured yet.
+
 - M1 complete: guarded PR #1 merged into main `98408bd`; full gate and CI pass,
   39 tests, measured local coverage 98.18%. See its milestone report.
 - Full GO authorizes all remaining MVP milestones without routine pauses; retain

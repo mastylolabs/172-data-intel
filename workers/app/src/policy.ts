@@ -10,7 +10,8 @@ export function unicode(value: string): boolean {
   });
 }
 function keyOrder(left: string, right: string): number {
-  const a = Array.from(left), b = Array.from(right);
+  const a = Array.from(left);
+  const b = Array.from(right);
   for (let index = 0; index < Math.min(a.length, b.length); index++) {
     const difference = a[index].codePointAt(0)! - b[index].codePointAt(0)!;
     if (difference !== 0) return difference;

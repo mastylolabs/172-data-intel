@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { approvedSource, plannerProposal, questionInput, validatedEnvelope } from "../src/contracts";
+import {
+  approvedSource, plannerProposal, questionInput, validatedEnvelope, type Envelope,
+} from "../src/contracts";
 import { bound, canonicalJson, payloadSha256, supportedClaims } from "../src/policy";
 import { PLANNER, SYNTHESIZER, VALIDATOR } from "../src/prompts";
 
@@ -11,7 +13,7 @@ const source = {
 } as const;
 const id = "11111111-1111-4111-8111-111111111111";
 const payload = z.strictObject({ value: z.string() });
-async function envelope(value = "ok") {
+async function envelope(value = "ok"): Promise<Envelope<z.infer<typeof payload>>> {
   return {
     version: "2", job_id: id, run_id: id, receipt_id: id, payload: { value },
     payload_sha256: await payloadSha256({ value }),
@@ -66,8 +68,15 @@ describe("app contract foundation", () => {
     }
     const transformed = z.strictObject({ value: z.string().trim() });
     await expect(validatedEnvelope(transformed, await envelope(" ok "), 4096)).rejects.toThrow("invalid_result");
-    await expect(validatedEnvelope(payload, await envelope("x".repeat(4096)), 4096)).rejects.toThrow("result_limit");
-    await expect(validatedEnvelope(payload, await envelope("x".repeat(16_384)), 20_000)).rejects.toThrow("result_limit");
+    await expect(validatedEnvelope(payload, await envelope("x".repeat(4084)), 4096)).resolves.toBeDefined();
+    await expect(validatedEnvelope(payload, await envelope("x".repeat(4085)), 4096)).rejects.toThrow("result_limit");
+    const bodyCapacity = 16_384 - new TextEncoder().encode(canonicalJson(await envelope(""))).length;
+    await expect(validatedEnvelope(payload, await envelope("x".repeat(bodyCapacity)), 16_384)).resolves.toBeDefined();
+    await expect(validatedEnvelope(payload, await envelope("x".repeat(bodyCapacity + 1)), 16_384)).rejects.toThrow("result_limit");
+    const extra = { value: "ok", extra: true };
+    await expect(validatedEnvelope(payload, {
+      ...wire, payload: extra, payload_sha256: await payloadSha256(extra),
+    }, 4096)).rejects.toThrow("invalid_result");
   });
   it("uses Python-compatible Unicode canonical ordering and refuses lossy values", async () => {
     expect(canonicalJson({ "𐀀": "é", "\ue000": 1 })).toBe('{"":1,"𐀀":"é"}');
