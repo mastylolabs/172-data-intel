@@ -1,6 +1,6 @@
-# MVP public Agent bridge
+# MVP public Agent bridge and web chat
 
-This package is the runnable public JSON bridge for the MVP. It is a native
+This package is the runnable public web chat and JSON bridge for the MVP. It is a native
 Agents SDK Worker backed by the `MvpAppAgent` Durable Object and an opaque,
 cookie-keyed session. It calls the private Python v2 service through the `TOOLS`
 service binding. Existing `workers/agent` and `workers/tools` resources remain
@@ -41,7 +41,11 @@ active job, terminal receipts, replay outcomes, expiry, cancellation, and reset
 fencing are durable state. The bridge validates source, job/run identity,
 hashes, runtime mode, strict input fields, and bounded streams before exposing a
 receipt. Support search is targeted lexical evidence with exact IDs and quotes;
-it does not establish corpus prevalence or absence.
+it does not establish corpus prevalence or absence. `GET /` serves the
+same-origin chat shell. It keeps source selection in the durable session,
+offers bounded example questions, polls progress, renders clarification and
+safe refusal states, and exposes publication evidence in an inspectable panel.
+The shell uses no third-party assets or runtime calls.
 
 The private binding in Wrangler points to the existing `172x-data-intel-m2-tools`
 Worker for preview verification. Before a deployed app publish, replace the
