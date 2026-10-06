@@ -21,8 +21,15 @@ class Default(WorkerEntrypoint):  # type: ignore[misc]
     """Expose only three bounded service-binding operations."""
 
     async def fetch(self, request: object) -> object:
-        method = getattr(request, "method", None)
-        path = urlsplit(getattr(request, "url", "")).path
+        try:
+            method = getattr(request, "method", None)
+            raw_url = getattr(request, "url", "")
+            if not isinstance(raw_url, str):
+                raise TypeError("invalid request URL")
+            path = urlsplit(raw_url).path
+        except (AttributeError, TypeError, ValueError):
+            status, body = error_response("unsupported_transport", "transport")
+            return Response(body, status=status, headers={"content-type": "application/json"})
         if isinstance(method, str) and path.startswith("/v2/"):
             return await self._fetch_v2(request, method, path)
         try:
