@@ -19,11 +19,11 @@ def _entry(source: object = DEMO_SOURCE) -> CatalogEntryV2:
             kind="structured",
             display_name="Sales demo",
             description="Synthetic net sales lines for bounded structured analysis.",
-            capability_help={
-                "profile": "Summarize fields and bounded statistics.",
-                "query": "Ask for read-only totals, groups, rankings or period comparisons.",
-            },
-            capabilities=["profile", "query"],
+            capability_help=(
+                ("profile", "Summarize fields and bounded statistics."),
+                ("query", "Ask for read-only totals, groups, rankings or period comparisons."),
+            ),
+            capabilities=("profile", "query"),
             record_count=24,
             manifest_bytes=1025,
             scope="complete_immutable_fixture",
@@ -35,13 +35,14 @@ def _entry(source: object = DEMO_SOURCE) -> CatalogEntryV2:
         kind="messages",
         display_name="Support messages",
         description="Synthetic support messages for targeted lexical examples.",
-        capability_help={
-            "search": (
+        capability_help=(
+            (
+                "search",
                 "Find matching messages with exact IDs and source quotes; "
-                "hits do not establish prevalence."
-            )
-        },
-        capabilities=["search"],
+                "hits do not establish prevalence.",
+            ),
+        ),
+        capabilities=("search",),
         record_count=16,
         manifest_bytes=3091,
         scope="complete_immutable_fixture",
@@ -72,14 +73,14 @@ def test_catalog_rejects_wrong_version_revision_and_empty_registry(
 def test_catalog_rejects_duplicate_or_unregistered_sources() -> None:
     entry = _entry()
     with pytest.raises(ValidationError, match="unsupported_source"):
-        CatalogV2(version="2", catalog_revision="m4-catalog.v1", entries=[entry, entry])
+        CatalogV2(version="2", catalog_revision="m4-catalog.v1", entries=(entry, entry))
     fake_source = DEMO_SOURCE.model_copy(update={"snapshot_sha256": "0" * 64})
     wrong = entry.model_copy(update={"source": fake_source})
     with pytest.raises(ValidationError, match=r"source_mismatch"):
         CatalogV2(
             version="2",
             catalog_revision="m4-catalog.v1",
-            entries=[wrong, _entry(SUPPORT_SOURCE)],
+            entries=(wrong, _entry(SUPPORT_SOURCE)),
         )
 
 
@@ -118,11 +119,11 @@ def test_catalog_rejects_fabricated_manifest_and_unknown_fields() -> None:
 
 def test_registered_catalog_nested_values_are_immutable() -> None:
     catalog = registered_catalog()
-    with pytest.raises(TypeError, match="immutable"):
-        catalog.entries[0].capabilities.append("search")
-    with pytest.raises(TypeError, match="immutable"):
-        catalog.entries[0].capability_help["query"] = "fabricated"
-    with pytest.raises(TypeError, match="immutable"):
-        catalog.entries[0].capability_help.clear()
-    with pytest.raises(TypeError, match="immutable"):
-        catalog.entries.clear()
+    append_name = "append"
+    with pytest.raises(AttributeError, match="append"):
+        getattr(catalog.entries[0].capabilities, append_name)("search")
+    with pytest.raises(ValidationError):
+        catalog.entries[0].capability_help = (("query", "fabricated"),)
+    clear_name = "clear"
+    with pytest.raises(AttributeError, match="clear"):
+        getattr(catalog.entries, clear_name)()

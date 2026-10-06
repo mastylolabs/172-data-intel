@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 
 from data_intel.contracts import SourceId, SourceIdentity
 from data_intel.sales_demo import DEMO_SOURCE
@@ -15,41 +15,6 @@ CatalogKind = Literal["structured", "messages"]
 CatalogScope = Literal["complete_immutable_fixture"]
 
 
-class _FrozenCapabilityHelp(dict[CatalogCapability, str]):
-    """Mapping used to keep server-owned capability text immutable."""
-
-    def _immutable(self, *_args: object, **_kwargs: object) -> None:
-        raise TypeError("catalog capability metadata is immutable")
-
-    __setitem__ = _immutable
-    __delitem__ = _immutable
-    clear = _immutable
-    pop = _immutable  # type: ignore[assignment]  # intentionally disable mutation
-    popitem = _immutable  # type: ignore[assignment]  # intentionally disable mutation
-    setdefault = _immutable  # type: ignore[assignment]  # intentionally disable mutation
-    update = _immutable
-
-
-class _FrozenList[T](list[T]):
-    """List-shaped JSON values that cannot mutate validated catalog state."""
-
-    def _immutable(self, *_args: object, **_kwargs: object) -> None:
-        raise TypeError("catalog metadata is immutable")
-
-    __setitem__ = _immutable
-    __delitem__ = _immutable
-    __iadd__ = _immutable  # type: ignore[assignment]  # intentionally disable mutation
-    __imul__ = _immutable  # type: ignore[assignment]  # intentionally disable mutation
-    append = _immutable
-    clear = _immutable
-    extend = _immutable
-    insert = _immutable
-    pop = _immutable  # type: ignore[assignment]  # intentionally disable mutation
-    remove = _immutable
-    reverse = _immutable
-    sort = _immutable
-
-
 class CatalogEntryV2(V2StrictModel):
     source: SourceIdentity
     schema_revision: str = Field(min_length=1, max_length=64)
@@ -57,8 +22,8 @@ class CatalogEntryV2(V2StrictModel):
     kind: CatalogKind
     display_name: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=160)
-    capability_help: dict[CatalogCapability, str]
-    capabilities: list[CatalogCapability] = Field(min_length=1, max_length=3)
+    capability_help: tuple[tuple[CatalogCapability, str], ...] = Field(min_length=1, max_length=3)
+    capabilities: tuple[CatalogCapability, ...] = Field(min_length=1, max_length=3)
     record_count: int = Field(strict=True, ge=0, le=256)
     manifest_bytes: int = Field(strict=True, ge=1, le=65_536)
     scope: CatalogScope
@@ -74,12 +39,30 @@ class CatalogEntryV2(V2StrictModel):
             raise ValueError("invalid_input") from None
         return value
 
+    @field_validator("capability_help", mode="before")
+    @classmethod
+    def tuple_capability_help(cls, value: object) -> object:
+        if type(value) is dict:
+            return tuple(value.items())
+        if isinstance(value, tuple):
+            return value
+        raise ValueError("invalid_input")
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def tuple_capabilities(cls, value: object) -> object:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("invalid_input")
+        return tuple(value)
+
     @field_validator("capability_help")
     @classmethod
-    def bounded_help(cls, value: dict[CatalogCapability, str]) -> dict[CatalogCapability, str]:
+    def bounded_help(
+        cls, value: tuple[tuple[CatalogCapability, str], ...]
+    ) -> tuple[tuple[CatalogCapability, str], ...]:
         if not value:
             raise ValueError("invalid_input")
-        for text in value.values():
+        for _, text in value:
             try:
                 if len(text.encode("utf-8")) > 180:
                     raise ValueError("invalid_input")
@@ -92,17 +75,29 @@ class CatalogEntryV2(V2StrictModel):
         expected = {"structured": {"profile", "query"}, "messages": {"search"}}[self.kind]
         if len(self.capabilities) != len(set(self.capabilities)):
             raise ValueError("invalid_input")
-        if set(self.capabilities) != expected or set(self.capability_help) != expected:
+        help_keys = {key for key, _ in self.capability_help}
+        if set(self.capabilities) != expected or help_keys != expected:
             raise ValueError("capability_mismatch")
-        object.__setattr__(self, "capability_help", _FrozenCapabilityHelp(self.capability_help))
-        object.__setattr__(self, "capabilities", _FrozenList(self.capabilities))
         return self
+
+    @field_serializer("capability_help")
+    def serialize_capability_help(
+        self, value: tuple[tuple[CatalogCapability, str], ...]
+    ) -> dict[CatalogCapability, str]:
+        return dict(value)
 
 
 class CatalogV2(V2StrictModel):
     version: Literal["2"]
     catalog_revision: CatalogRevision
-    entries: list[CatalogEntryV2] = Field(min_length=1, max_length=8)
+    entries: tuple[CatalogEntryV2, ...] = Field(min_length=1, max_length=8)
+
+    @field_validator("entries", mode="before")
+    @classmethod
+    def tuple_entries(cls, value: object) -> object:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("invalid_input")
+        return tuple(value)
 
     @model_validator(mode="after")
     def registered_sources_and_size(self) -> "CatalogV2":
@@ -115,7 +110,6 @@ class CatalogV2(V2StrictModel):
                 raise ValueError("source_mismatch")
         if len(canonical_json(self)) > 4_096:
             raise ValueError("result_limit")
-        object.__setattr__(self, "entries", _FrozenList(self.entries))
         return self
 
 
@@ -187,5 +181,5 @@ def registered_catalog() -> CatalogV2:
     return CatalogV2(
         version="2",
         catalog_revision="m4-catalog.v1",
-        entries=[CatalogEntryV2.model_validate(value) for value in _REGISTERED.values()],
+        entries=tuple(CatalogEntryV2.model_validate(value) for value in _REGISTERED.values()),
     )
