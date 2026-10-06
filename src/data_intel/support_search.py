@@ -141,7 +141,7 @@ def _request(request: SearchRequestV2) -> SearchRequestV2:
     if request.version != "2":
         raise SearchFailure("unsupported_version")
     try:
-        validated = SearchRequestV2.model_validate(request.model_dump())
+        validated = SearchRequestV2.model_validate(request.model_dump(warnings=False))
     except (ValidationError, SearchContentError):
         raise SearchFailure("invalid_input") from None
     if validated.source.source_id != SourceId.SUPPORT:

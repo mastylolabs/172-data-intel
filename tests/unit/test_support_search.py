@@ -2,6 +2,7 @@
 
 import json
 import re
+import warnings
 from dataclasses import replace
 from hashlib import sha256
 from typing import cast
@@ -105,6 +106,8 @@ def test_timestamp_and_id_ties_and_complete_quotes_keep_source_order_independent
         ({"query": "É"}, "invalid_input"),
         ({"query": "a" * 33}, "invalid_input"),
         ({"max_hits": True}, "invalid_input"),
+        ({"query": {"raw": "private_query_sentinel"}}, "invalid_input"),
+        ({"max_hits": "private_limit_sentinel"}, "invalid_input"),
         ({"version": "1"}, "unsupported_version"),
         (
             {"source": SUPPORT_SOURCE.model_copy(update={"source_id": SourceId.SALES})},
@@ -125,9 +128,13 @@ def test_copied_input_and_identity_fail_before_loader(
 ) -> None:
     loader = Mock(side_effect=AssertionError("must not read"))
     monkeypatch.setattr(support_search, "load_support_demo", loader)
-    with pytest.raises(SearchFailure) as error:
-        search_support(_request().model_copy(update=change))
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        with pytest.raises(SearchFailure) as error:
+            search_support(_request().model_copy(update=change))
     assert str(error.value) == error.value.code == code
+    assert not captured
+    assert "private_" not in str(error.value)
     loader.assert_not_called()
 
 
