@@ -498,11 +498,50 @@ export class ProofAgent extends Agent<Env, State> {
   private async readV2State(): Promise<SessionStateV2> {
     const stored = await this.ctx.storage.get<unknown>("m4-v2-session");
     if (stored === undefined) return initialSessionState();
+    const revoked = z.strictObject({ version: z.literal("2"), revoked: z.literal(true) });
+    if (revoked.safeParse(stored).success) throw new Error("access_denied");
+    const reconciled = z.strictObject({
+      version: z.literal("2"), expired: z.literal(true), state: z.unknown(),
+    }).safeParse(stored);
+    let state: SessionStateV2;
     try {
-      return parseSessionState(stored);
+      state = parseSessionState(reconciled.success ? reconciled.data.state : stored);
     } catch {
       throw new Error("state_corrupt");
     }
+    if (reconciled.success || Date.parse(state.expires_at) > Date.now()) return state;
+    return this.expireV2State(state);
+  }
+
+  private async expireV2State(state: SessionStateV2): Promise<SessionStateV2> {
+    const renewed = resetSession(state);
+    const job = state.active_job;
+    const expired = parseSessionState({
+      ...renewed,
+      expires_at: state.expires_at,
+      active_job: job ? {
+        ...job,
+        phase: "interrupted",
+        generation: renewed.generation,
+        cancel_epoch: renewed.cancel_epoch,
+        active_run_id: null,
+        error: null,
+        clarification: null,
+      } : null,
+      request_journal: job ? [{
+        request_id: job.request_id,
+        input_sha256: job.input_sha256,
+        job_id: job.job_id,
+        terminal_code: "expired",
+        publication_id: null,
+      }] : [],
+    });
+    const record = { version: "2", expired: true, state: expired };
+    if (new TextEncoder().encode(JSON.stringify(record)).byteLength > 65_536) {
+      throw new Error("state_limit");
+    }
+    await this.ctx.storage.put("m4-v2-session", record);
+    return expired;
   }
 
   private async writeV2State(state: SessionStateV2): Promise<Response> {
@@ -513,6 +552,9 @@ export class ProofAgent extends Agent<Env, State> {
 
   private async onV2Request(request: Request, path: string): Promise<Response> {
     const state = await this.readV2State();
+    if (Date.parse(state.expires_at) <= Date.now() && path !== "/v2/reset") {
+      return failV2("session_expired", 410, "transport");
+    }
     if (request.method === "GET" && path === "/v2/session") return json(publicSnapshot(state));
     if (request.method !== "POST") return failV2("not_found", 404);
     const body = await boundedJson(request, 4096);
@@ -522,7 +564,8 @@ export class ProofAgent extends Agent<Env, State> {
     }
     if (path === "/v2/reset") {
       v2EmptyRequest.parse(body);
-      return this.writeV2State(resetSession(state));
+      await this.ctx.storage.put("m4-v2-session", { version: "2", revoked: true });
+      return json(publicSnapshot(resetSession(state)));
     }
     if (path === "/v2/cancel") {
       v2EmptyRequest.parse(body);
@@ -544,6 +587,7 @@ export class ProofAgent extends Agent<Env, State> {
       try {
         return await this.onV2Request(request, path);
       } catch (error) {
+        if (error instanceof Error && error.message === "access_denied") return failV2("access_denied", 403);
         if (error instanceof Error && error.message === "state_corrupt") return failV2("runtime_incompatible", 503, "transport");
         if (error instanceof Error && error.message === "state_limit") return failV2("state_limit", 413, "input");
         return failV2("invalid_input", 400, "input");
@@ -631,7 +675,7 @@ export default {
       return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
     }
     const currentToken = sessionToken(request);
-    const token = url.pathname === "/proof/reset" ? randomToken() : currentToken;
+    const token = ["/proof/reset", "/v2/reset"].includes(url.pathname) ? randomToken() : currentToken;
     const id = env.ProofAgent.idFromName(await sha256(currentToken));
     const forwardHeaders = new Headers(request.headers);
     forwardHeaders.delete("authorization");
