@@ -4,6 +4,9 @@
 
 The MVP is deployed at https://172x-data-intel-mvp-app.zmastylo.workers.dev. It provides a Durable Object backed native Agent, session-isolated web chat, source selection, suggested questions, persistent state, bounded Analyst planning, read-only Python-backed query/search tools, deterministic checks, and a separate Workers AI Validator. The bundled sales CSV and support JSONL fixtures are pinned by source hashes and exposed through the catalog.
 
+Setup and deployment steps are in the [root README](../../README.md), with the
+public route and model-boundary details in [the app README](../../workers/app/README.md).
+
 Relevant merged implementation PRs are [#61](https://github.com/mastylolabs/172-data-intel/pull/61), [#62](https://github.com/mastylolabs/172-data-intel/pull/62), [#63](https://github.com/mastylolabs/172-data-intel/pull/63), [#64](https://github.com/mastylolabs/172-data-intel/pull/64), [#65](https://github.com/mastylolabs/172-data-intel/pull/65), [#66](https://github.com/mastylolabs/172-data-intel/pull/66), [#67](https://github.com/mastylolabs/172-data-intel/pull/67), [#68](https://github.com/mastylolabs/172-data-intel/pull/68), [#69](https://github.com/mastylolabs/172-data-intel/pull/69), [#70](https://github.com/mastylolabs/172-data-intel/pull/70), and [#71](https://github.com/mastylolabs/172-data-intel/pull/71). The verified `main` revision is `094838c3bbcdd4cff807106c7f5d6c47281e2041`.
 
 ## Problems and resolutions

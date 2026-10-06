@@ -1,14 +1,40 @@
 # 172X Data Intelligence
 
-An evidence-first analytical MVP under staged construction. M1 provides a public
-Python package, strict engineering gate and versioned source/SQL-intent contracts.
-The Cloudflare Agent, Python execution, Workers AI and web chat are planned in
-the [delivery plan](docs/mvp-delivery-plan.md). The original
-[architecture](docs/architecture.md) remains the design reference.
+An evidence-first analytical MVP with a Cloudflare Agent, Durable Object session
+state, Workers AI Llama 3.3, bounded Python analytical tools and a web chat. The
+live app is https://172x-data-intel-mvp-app.zmastylo.workers.dev. The original
+[architecture](docs/architecture.md) remains the design reference and the staged
+scope is tracked in the [delivery plan](docs/mvp-delivery-plan.md).
 
-The separate [app contract foundation](workers/app/README.md) prepares strict
-demo-source/model proposal contracts and Python v2 evidence verification. It has
-no public routes or deployment yet; `make gate` includes its TypeScript checks.
+## Current MVP setup and deployment
+
+Use Python >=3.12, [uv](https://docs.astral.sh/uv/), Node/npm and Wrangler. From a
+clean checkout run `make install`, then `make gate`. The public Worker is
+`workers/app`; the private Python tools and Agent Workers are configured in
+`workers/tools` and `workers/agent`. Configure the same 32-byte
+`PLANNER_BUDGET_TOKEN` secret in the Agent and app Workers with
+`wrangler secret put PLANNER_BUDGET_TOKEN`; keep the value out of source and logs.
+
+Deploy the reviewed tools and Agent Workers first. Deploy the app with the exact
+40-character tools build revision and promoted tools Worker version UUID:
+
+```sh
+npx wrangler deploy --config workers/tools/wrangler.jsonc
+npx wrangler deploy --config workers/agent/wrangler.jsonc
+npx wrangler deploy --config workers/app/wrangler.jsonc \
+  --var TOOLS_BUILD_REVISION:<tools-main-sha> \
+  --var TOOLS_WORKER_VERSION_ID:<tools-version-uuid>
+```
+
+The app serves `GET /` and same-origin JSON routes under `/api/`; select `sales`
+or `support`, then ask a question and poll `/api/state`. Example questions are
+“What are total net units?” and “Find messages about export errors”. The final
+deployment and smoke evidence are recorded in
+[the final milestone report](docs/milestones/m6-final-report.md).
+
+The [app package documentation](workers/app/README.md) covers the public route
+contract, bounded model calls, evidence publication and deployment variables.
+`make gate` includes its TypeScript checks.
 
 Use Python >=3.12, [uv](https://docs.astral.sh/uv/) and Make:
 

@@ -48,13 +48,14 @@ safe refusal states, and exposes publication evidence in an inspectable panel.
 The shell uses no third-party assets or runtime calls.
 
 The private binding in Wrangler points to the existing `172x-data-intel-m2-tools`
-Worker for preview verification. Before a deployed app publish, replace the
-empty `TOOLS_BUILD_REVISION` and `TOOLS_WORKER_VERSION_ID` vars with the exact
-private tools Worker build revision and version-metadata UUID; blank values fail
-closed. The separate Validator uses the same free-only Llama 3.3 model with a
-40,960-byte input cap, 8,192-byte output cap, 256 output tokens, zero temperature
-and no automatic retry. This package does not deploy or enable paid billing. The
-planner gateway also uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, with 12,288-byte input,
-8,192-byte output, one call, zero temperature and no automatic retry. Its local
-tests use a fake AI binding; `/api/ask` is the first public route that invokes
-it, and no live model check is claimed here.
+Worker. Before a deployed app publish, replace the empty `TOOLS_BUILD_REVISION`
+and `TOOLS_WORKER_VERSION_ID` vars with the exact private tools Worker build
+revision and version-metadata UUID; blank values fail closed. The separate
+Validator uses the same free-only Llama 3.3 model with a 40,960-byte input cap,
+8,192-byte output cap, 512 output tokens, zero temperature and no automatic
+retry. This package does not deploy or enable paid billing. The planner gateway
+also uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, with 12,288-byte input,
+8,192-byte output, one call, zero temperature and no automatic retry. Local tests
+use a fake AI binding; the reviewed public deployment was smoke-tested with the
+real model for both bundled examples. See the root README and final milestone
+report for setup, deployment and evidence.
