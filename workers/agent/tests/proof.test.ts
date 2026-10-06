@@ -6,8 +6,12 @@ vi.mock("agents", () => ({
   Agent: class {
     state: unknown;
     env: unknown;
+    ctx: { storage: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> } };
     constructor(_ctx: unknown, env: unknown) {
       this.env = env;
+      this.ctx = {
+        storage: { get: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined) },
+      };
     }
     setState(next: unknown): void {
       this.state = next;
@@ -88,6 +92,30 @@ describe("restricted native proof bridge", () => {
     expect(cookie).not.toContain(lookup.mock.calls[0][0]);
     await worker.fetch(request("/proof/state"), env);
     expect(lookup.mock.calls[2][0]).not.toBe(lookup.mock.calls[0][0]);
+  });
+  it("persists the v2 session separately and fences source/reset changes", async () => {
+    const { env, agent } = setup();
+    const session = await worker.fetch(request("/v2/session"), env);
+    expect(session.status).toBe(200);
+    expect((await session.json() as { selected_source: null }).selected_source).toBeNull();
+    const support = await worker.fetch(
+      request("/v2/source", { version: "2", source: {
+        version: "1",
+        source_id: "support",
+        snapshot_sha256: "c6365aa74909b4deb09bb00114f7b489dcc8c9c152c57855db95fd6304e1e536",
+        meaning_revision: "support-demo.v1",
+      } }),
+      env,
+    );
+    expect(support.status).toBe(200);
+    const supportBody = await support.json() as { selected_source: { source_id: string } };
+    expect(supportBody.selected_source.source_id).toBe("support");
+    const storage = (agent as unknown as { ctx: { storage: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> } } }).ctx.storage;
+    storage.get.mockResolvedValueOnce(storage.put.mock.calls.at(-1)?.[1]);
+    const refreshed = await agent.onRequest(new Request("https://proof.example/v2/session"));
+    expect((await refreshed.json() as { selected_source: { source_id: string } }).selected_source.source_id).toBe("support");
+    const reset = await worker.fetch(request("/v2/reset", { version: "2" }), env);
+    expect((await reset.json() as { selected_source: null }).selected_source).toBeNull();
   });
   it("persists server-only source/reset state and refuses support without calls", async () => {
     const { agent, env, tools } = setup();
