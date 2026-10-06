@@ -125,6 +125,8 @@ const fail = (
     },
     status,
   );
+const failV2 = (code: string, status = 400, stage = "input"): Response =>
+  json({ version: "2", code, stage, job_id: null, run_id: null, limit: null, provider_reason: null, automatic_retry: false }, status);
 
 type BudgetState = { version: "1"; utc_day: string; model_calls: number };
 export class ProofBudget extends DurableObjectBase<Env> {
@@ -499,9 +501,7 @@ export class ProofAgent extends Agent<Env, State> {
     try {
       return parseSessionState(stored);
     } catch {
-      const fresh = initialSessionState();
-      await this.ctx.storage.put("m4-v2-session", fresh);
-      return fresh;
+      throw new Error("state_corrupt");
     }
   }
 
@@ -514,7 +514,7 @@ export class ProofAgent extends Agent<Env, State> {
   private async onV2Request(request: Request, path: string): Promise<Response> {
     const state = await this.readV2State();
     if (request.method === "GET" && path === "/v2/session") return json(publicSnapshot(state));
-    if (request.method !== "POST") return fail("not_found", 404);
+    if (request.method !== "POST") return failV2("not_found", 404);
     const body = await boundedJson(request, 4096);
     if (path === "/v2/source") {
       const parsed = v2SourceRequest.parse(body);
@@ -528,7 +528,7 @@ export class ProofAgent extends Agent<Env, State> {
       v2EmptyRequest.parse(body);
       return this.writeV2State(cancelJob(state));
     }
-    return fail("not_found", 404);
+    return failV2("not_found", 404);
   }
 
   async onRequest(request: Request): Promise<Response> {
@@ -537,15 +537,16 @@ export class ProofAgent extends Agent<Env, State> {
       this.setState(normalizeState(stored));
     }
     const path = new URL(request.url).pathname;
-    if (this.state.revoked) return fail("access_denied", 403);
+    if (this.state.revoked) return path.startsWith("/v2/") ? failV2("access_denied", 403) : fail("access_denied", 403);
     if (path.startsWith("/v2/")) {
-      if (this.busy) return fail("request_conflict", 409);
+      if (this.busy) return failV2("request_conflict", 409);
       this.busy = true;
       try {
         return await this.onV2Request(request, path);
       } catch (error) {
-        if (error instanceof Error && error.message === "state_limit") return fail("state_limit", 413, "input");
-        return fail("invalid_input", 400, "input");
+        if (error instanceof Error && error.message === "state_corrupt") return failV2("runtime_incompatible", 503, "transport");
+        if (error instanceof Error && error.message === "state_limit") return failV2("state_limit", 413, "input");
+        return failV2("invalid_input", 400, "input");
       } finally {
         this.busy = false;
       }
@@ -611,22 +612,23 @@ const proofRoutes = new Set([
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const isV2 = url.pathname.startsWith("/v2/");
     if (!url.pathname.startsWith("/proof/") && !url.pathname.startsWith("/v2/")) {
-      return fail("not_found", 404);
+      return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
     }
     if (
       new TextEncoder().encode(env.PROOF_TOKEN ?? "").byteLength < 32 ||
       request.headers.get("authorization") !== `Bearer ${env.PROOF_TOKEN}`
     ) {
-      return fail("access_denied", 403);
+      return isV2 ? failV2("access_denied", 403) : fail("access_denied", 403);
     }
-    if (request.headers.has("upgrade")) return fail("access_denied", 403);
+    if (request.headers.has("upgrade")) return isV2 ? failV2("access_denied", 403) : fail("access_denied", 403);
     if (request.method !== "GET" && request.headers.get("origin") !== url.origin) {
-      return fail("access_denied", 403);
+      return isV2 ? failV2("access_denied", 403) : fail("access_denied", 403);
     }
-    if (!proofRoutes.has(url.pathname)) return fail("not_found", 404);
+    if (!proofRoutes.has(url.pathname)) return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
     if (request.method !== (["/proof/state", "/v2/session"].includes(url.pathname) ? "GET" : "POST")) {
-      return fail("not_found", 404);
+      return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
     }
     const currentToken = sessionToken(request);
     const token = url.pathname === "/proof/reset" ? randomToken() : currentToken;

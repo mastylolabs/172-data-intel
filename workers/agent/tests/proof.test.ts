@@ -98,6 +98,8 @@ describe("restricted native proof bridge", () => {
     const session = await worker.fetch(request("/v2/session"), env);
     expect(session.status).toBe(200);
     expect((await session.json() as { selected_source: null }).selected_source).toBeNull();
+    const denied = await worker.fetch(request("/v2/session", undefined, { authorization: "bad" }), env);
+    expect((await denied.json() as { version: string }).version).toBe("2");
     const support = await worker.fetch(
       request("/v2/source", { version: "2", source: {
         version: "1",
