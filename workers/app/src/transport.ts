@@ -31,6 +31,7 @@ const text = (maximum: number): z.ZodType<string> => z.string().refine(
   (value) => unicode(value) && !/[\p{Cc}\p{Cf}]/u.test(value) && value.trim().length > 0 &&
     new TextEncoder().encode(value).byteLength <= maximum,
 );
+const label = (maximum: number): z.ZodType<string> => text(maximum).refine((value) => value.trim() === value);
 const timestamp = z.iso.datetime({ precision: 0 }).refine(
   (value) => !value.startsWith("0000") && new Date(value).toISOString() === value.replace("Z", ".000Z"),
 );
@@ -48,8 +49,8 @@ export const searchRequest = z.strictObject({
   version,
   request_id: requestId,
   query: text(128),
-  channel: text(64).nullable(),
-  customer: text(64).nullable(),
+  channel: label(64).nullable(),
+  customer: label(64).nullable(),
   start: timestamp.nullable(),
   end: timestamp.nullable(),
   max_hits: z.number().int().min(1).max(5),

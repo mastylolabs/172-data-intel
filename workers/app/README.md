@@ -1,46 +1,30 @@
-# App bridge transport
+# MVP public Agent bridge
 
-This package contains the bounded private transport foundation for the public
-MVP. It calls only the current Python v2 service paths (`/v2/catalog`,
-`/v2/profile`, `/v2/query`, and `/v2/search`) through a mocked Fetcher
-contract. The public Worker, native Agent/Durable Object lifecycle, browser UI,
-model calls, and deployment are deferred to the dependent bridge slice. The
-existing `workers/agent` and Python service remain independent.
-
-The transport accepts strict request DTOs, projects search fields explicitly,
-streams request and response bodies under byte limits with fatal UTF-8 decoding,
-applies a five-second private-call timeout, and validates the existing domain
-envelopes, runtime mode, and expected job/run identities before returning a
-receipt. It never exposes service error bodies.
+This package is the runnable public JSON bridge for the MVP. It is a native
+Agents SDK Worker backed by the `MvpAppAgent` Durable Object and an opaque,
+cookie-keyed session. It calls the private Python v2 service through the `TOOLS`
+service binding. Existing `workers/agent` and `workers/tools` resources remain
+unchanged.
 
 ```sh
 npm ci --prefix workers/app
 npm run typecheck --prefix workers/app
 npm test --prefix workers/app -- --coverage
+npx wrangler deploy --dry-run --config workers/app/wrangler.jsonc
 make gate
 ```
 
-The exported DTO schemas pin the reviewed sales/support source hashes and bound
-question, SQL, search, filter, and result sizes. Search date intervals are
-canonical UTC timestamps with an end after the start. `buildToolBody` drops
-public request metadata from the Python search body and adds only the v2 job,
-run, and source envelope fields. Callers still own capability and authorization
-checks at the future public Agent route boundary.
+The public routes are `GET /api/state` and same-origin `POST /api/source`,
+`/api/profile`, `/api/query`, `/api/search`, `/api/cancel`, and `/api/reset`.
+Jobs return a 202 snapshot and are polled through `/api/state`. Sessions are
+isolated by an opaque cookie, reset rotates the cookie, and selected source,
+active job, terminal receipts, replay outcomes, expiry, cancellation, and reset
+fencing are durable state. The bridge validates source, job/run identity,
+hashes, runtime mode, strict input fields, and bounded streams before exposing a
+receipt. Support search is targeted lexical evidence with exact IDs and quotes;
+it does not establish corpus prevalence or absence.
 
-`validatedDomainEnvelope()` validates the common Python v2 envelope, recomputes
-the typed payload digests, and checks receipt-specific identity/source/runtime
-rules. `executeTool` then binds every non-catalog response to the active job
-and run supplied by its caller; catalog is the only operation with null envelope
-identifiers.
-
-The app contract foundation also provides Python-compatible canonical JSON and
-hashing for the domain receipts. Exact analytical numbers remain decimal strings;
-the bridge does not turn deterministic receipts into claims or publication.
-
-Tests use deterministic Fetcher responses and cover all four private paths,
-foreign identifiers, malformed UTF-8, stream overflow, strict search projection,
-tampered/invalid service responses, and safe service failures. The next bridge
-slice adds the public Agent and Durable Object lifecycle, strict `/api` routes,
-durable session state, cancellation/reset fencing, and Wrangler resources.
-Candidate/Validator schemas, Workers AI, and the web chat remain later
-capabilities.
+The private binding in Wrangler points to the existing `172x-data-intel-m2-tools`
+Worker for preview verification. Workers AI planning, separate candidate and
+Validator calls, publication, and browser chat are the next application slice;
+this package does not deploy or enable paid billing.
