@@ -121,16 +121,24 @@ class NumericalCheckReportV2(_Value):
 
 def _payload_digest(payload: QueryResultV2 | DataProfileV2, scope: ClaimScopeV2, rid: UUID) -> str:
     if isinstance(payload, QueryResultV2):
-        if rid != payload.receipt_id:
-            raise ValueError("result_ref_mismatch")
-        if scope.period is not None or scope.filters or scope.group is not None:
-            raise ValueError("unsupported_scope")
-        if scope.unit != _query_unit(payload):
-            raise ValueError("unit_mismatch")
-        return _digest(payload.model_dump(mode="json"))
+        return _query_payload_digest(payload, scope, rid)
     if scope.period is not None or scope.filters or scope.group is not None:
         raise ValueError("scope_mismatch")
     return sha256(canonical_profile_json(payload)).hexdigest()
+
+
+def _query_payload_digest(payload: QueryResultV2, scope: ClaimScopeV2, rid: UUID) -> str:
+    if rid != payload.receipt_id:
+        raise ValueError("result_ref_mismatch")
+    if scope.period is not None or scope.filters:
+        raise ValueError("unsupported_scope")
+    if scope.group is not None and (
+        _grouped_measure(payload) is None or not _returned_group(payload, scope.group)
+    ):
+        raise ValueError("unsupported_scope")
+    if scope.unit != _query_unit(payload):
+        raise ValueError("unit_mismatch")
+    return _digest(payload.model_dump(mode="json"))
 
 
 def _bytes(value: object) -> bytes:
@@ -159,10 +167,29 @@ def _query_unit(payload: QueryResultV2) -> str:
         re.I,
     )
     if match is None or payload.columns != [match.group(2)]:
-        raise ValueError("unsupported_scope")
+        grouped = _grouped_measure(payload)
+        if grouped is None:
+            raise ValueError("unsupported_scope")
+        return {"units": "net_units", "revenue_cents": "USD_cents"}[grouped]
     return {"count(*)": "count", "units": "net_units", "revenue_cents": "USD_cents"}[
         match.group(1).lower()
     ]
+
+
+def _grouped_measure(payload: QueryResultV2) -> str | None:
+    match = re.fullmatch(
+        r"SELECT customer, sum\((units|revenue_cents)\) AS ([A-Za-z_]\w*)"
+        r" FROM main\.sales GROUP BY customer ORDER BY \2 DESC, customer ASC",
+        payload.actual_sql,
+        re.I,
+    )
+    if match is None or payload.columns != ["customer", match.group(2)]:
+        return None
+    return match.group(1).lower()
+
+
+def _returned_group(payload: QueryResultV2, group: str) -> bool:
+    return any(row[0].type == "text" and row[0].value == group for row in payload.rows)
 
 
 def _cell(payload: QueryResultV2, column: str, index: int) -> int:
@@ -174,6 +201,16 @@ def _cell(payload: QueryResultV2, column: str, index: int) -> int:
     if cell.type != "integer":
         raise ValueError("unit_mismatch")
     return int(cell.value)
+
+
+def _check_group_row(claim: NumericalClaimV2, payload: QueryResultV2, index: int) -> None:
+    if _grouped_measure(payload) is None:
+        return
+    if index >= len(payload.rows) or claim.scope.group is None:
+        raise ValueError("group_mismatch")
+    group = payload.rows[index][0]
+    if group.type != "text" or group.value != claim.scope.group:
+        raise ValueError("group_mismatch")
 
 
 def _profile_value(claim: NumericalClaimV2, payload: DataProfileV2) -> int:
@@ -196,29 +233,106 @@ def _direct_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
         or calc.formula != calc.inputs[0]
     ):
         raise ValueError("unsupported_formula")
+    _check_group_row(claim, payload, index)
     return _cell(payload, ref.column, index)
 
 
-def _query_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
+def _difference_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
     ref, calc = claim.result_ref, claim.calculation
-    if calc.kind == "direct_cell":
+    tokens = tuple(f"{ref.column}[{index}]" for index in range(len(payload.rows)))
+    if (
+        ref.row_index is not None
+        or ref.cell_path != "cell"
+        or len(calc.inputs) != 2
+        or calc.formula != "-".join(calc.inputs)
+        or any(token not in tokens for token in calc.inputs)
+    ):
+        raise ValueError("unsupported_formula")
+    left, right = (tokens.index(token) for token in calc.inputs)
+    _check_group_row(claim, payload, left)
+    _check_group_row(claim, payload, right)
+    return _cell(payload, ref.column, left) - _cell(payload, ref.column, right)
+
+
+def _rank_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
+    ref, calc = claim.result_ref, claim.calculation
+    index = ref.row_index
+    if (
+        _grouped_measure(payload) is None
+        or index is None
+        or ref.cell_path != "rank"
+        or claim.scope.group is None
+        or calc.inputs != ("customer", ref.column)
+        or calc.formula != f"rank(customer,{ref.column})"
+        or index >= len(payload.rows)
+    ):
+        raise ValueError("unsupported_formula")
+    pairs = _rank_pairs(payload, ref.column)
+    if pairs != sorted(pairs) or payload.rows[index][0].value != claim.scope.group:
+        raise ValueError("rank_mismatch")
+    return index + 1
+
+
+def _rank_pairs(payload: QueryResultV2, column: str) -> list[tuple[int, str]]:
+    pairs: list[tuple[int, str]] = []
+    for row_index, row in enumerate(payload.rows):
+        group = row[0]
+        if group.type != "text":
+            raise ValueError("result_ref_mismatch")
+        pairs.append((-_cell(payload, column, row_index), group.value))
+    return pairs
+
+
+def _sum_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
+    ref, calc = claim.result_ref, claim.calculation
+    if (
+        _grouped_measure(payload) is not None
+        or ref.row_index is not None
+        or ref.cell_path != "sum"
+        or calc.inputs != (ref.column,)
+        or calc.formula != f"sum({ref.column})"
+    ):
+        raise ValueError("unsupported_formula")
+    return sum(_cell(payload, ref.column, index) for index in range(len(payload.rows)))
+
+
+def _query_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
+    if claim.calculation.kind == "direct_cell":
         return _direct_value(claim, payload)
-    if calc.kind == "sum":
-        if (
-            ref.row_index is not None
-            or ref.cell_path != "sum"
-            or calc.inputs != (ref.column,)
-            or calc.formula != f"sum({ref.column})"
-        ):
-            raise ValueError("unsupported_formula")
-        return sum(_cell(payload, ref.column, i) for i in range(len(payload.rows)))
+    if claim.calculation.kind == "sum":
+        return _sum_value(claim, payload)
+    if claim.calculation.kind == "difference":
+        return _difference_value(claim, payload)
+    if claim.calculation.kind == "rank":
+        return _rank_value(claim, payload)
     raise ValueError("unsupported_formula")
 
 
 def _check_claim_shape(claim: NumericalClaimV2) -> None:
-    allowed = {"scalar": ("direct_cell", "sum"), "count": ("direct_cell",), "sum": ("sum",)}
+    allowed = {
+        "scalar": ("direct_cell", "sum"),
+        "count": ("direct_cell",),
+        "sum": ("sum",),
+        "comparison": ("difference",),
+        "ranking": ("rank",),
+    }
     if claim.calculation.kind not in allowed.get(claim.claim_type, ()):
         raise ValueError("unsupported_formula")
+
+
+def _check_binding(claim: NumericalClaimV2, evidence: NumericEvidenceV2) -> None:
+    if claim.scope != evidence.scope:
+        raise ValueError("scope_mismatch")
+    if claim.scope.unit != claim.value.unit or (
+        isinstance(evidence.payload, QueryResultV2)
+        and claim.value.unit != _query_unit(evidence.payload)
+    ):
+        raise ValueError("unit_mismatch")
+    if (claim.result_ref.receipt_id, claim.result_ref.payload_sha256) != (
+        evidence.receipt_id,
+        evidence.payload_sha256,
+    ):
+        raise ValueError("result_ref_mismatch")
 
 
 def validate_numeric(
@@ -230,23 +344,14 @@ def validate_numeric(
     )
     try:
         _check_claim_shape(claim)
-        if claim.scope != evidence.scope:
-            raise ValueError("scope_mismatch")
-        if claim.scope.unit != claim.value.unit or (
-            isinstance(evidence.payload, QueryResultV2)
-            and claim.value.unit != _query_unit(evidence.payload)
-        ):
-            raise ValueError("unit_mismatch")
-        if (claim.result_ref.receipt_id, claim.result_ref.payload_sha256) != (
-            evidence.receipt_id,
-            evidence.payload_sha256,
-        ):
-            raise ValueError("result_ref_mismatch")
+        _check_binding(claim, evidence)
         value = (
             _profile_value(claim, evidence.payload)
             if isinstance(evidence.payload, DataProfileV2)
             else _query_value(claim, evidence.payload)
         )
+        if not INT_MIN <= value <= INT_MAX:
+            raise ValueError("overflow")
         if value != int(claim.value.value):
             raise ValueError("value_mismatch")
         status: Status = "pass"
