@@ -3,16 +3,19 @@ import {
   analystProposal, groundedCandidate, publishAnswer, publishedAnswer, validatorVerdict,
   TARGETED_LIMITATIONS, type CandidateCheck, type EvidenceContext, type GroundedCandidate, type PublicationOutcome,
 } from "./model_contracts";
-import { approvedSource, queryResultV2, searchReceiptV2, type Envelope } from "./contracts";
+import { approvedSource, catalogV2, dataProfileV2, queryResultV2, searchReceiptV2, type Envelope } from "./contracts";
 import { payloadSha256 } from "./policy";
 import { VALIDATOR } from "./prompts";
 import { PLANNER_MODEL } from "./model_gateway";
 
-const VALIDATOR_INPUT_BYTES = 12_288;
+const VALIDATOR_INPUT_BYTES = 40_960;
 const VALIDATOR_OUTPUT_BYTES = 8_192;
 const VALIDATOR_MAX_TOKENS = 256;
 const timestamp = (): string => new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(".000Z", "Z");
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const meanings = z.strictObject({ catalog: catalogV2.nullable(), profile: dataProfileV2.nullable() });
+export const publicationIdentity = z.strictObject({ publication_id: z.uuid(), run_id: z.uuid(), candidate_sha256: digest.nullable(), plan_sha256: digest,
+  validator_input_sha256: digest.nullable(), validator_report_sha256: digest.nullable() });
 export const publicationLineage = z.strictObject({
   context_sha256: digest, receipt_ids: z.array(z.uuid()).min(1).max(4), calculation_ids: z.array(z.uuid()).max(4),
   hit_refs: z.array(z.string().regex(/^M[0-9]{3}$/)).max(12),
@@ -24,7 +27,7 @@ const evidenceContext = z.strictObject({
 });
 const execution = z.strictObject({ version: z.literal("2"), job_id: z.uuid(), run_id: z.uuid(), receipt_id: z.uuid(), payload: z.union([queryResultV2, searchReceiptV2]), payload_sha256: digest,
   runtime: z.strictObject({ python_version: z.string().max(32), sqlite_version: z.string().max(32), runtime_mode: z.enum(["local", "deployed"]), build_revision: z.string().regex(/^[a-f0-9]{40}$/).nullable(), worker_version_id: z.uuid().nullable(), service_contract_revision: z.literal("m4-service.v1") }) });
-export const publicationEvidence = z.strictObject({ context: evidenceContext, execution });
+export const publicationEvidence = z.strictObject({ meanings, context: evidenceContext, execution });
 export const publicationOutcome = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("published"), answer: publishedAnswer }),
   z.strictObject({ kind: z.literal("refusal"), code: z.enum(["candidate_invalid", "deterministic_failed", "validator_failed"]) }),
@@ -32,7 +35,7 @@ export const publicationOutcome = z.discriminatedUnion("kind", [
 ]);
 export type ValidatorEnv = { AI: Pick<Ai, "run"> };
 export type PublicationBuild = { candidate: GroundedCandidate; context: EvidenceContext };
-export type ValidatorInput = { question: string; proposal: z.infer<typeof analystProposal>; context: EvidenceContext; execution: z.infer<typeof execution>; candidate: GroundedCandidate; deterministic: CandidateCheck };
+export type ValidatorInput = { question: string; proposal: z.infer<typeof analystProposal>; context: EvidenceContext; meanings: z.infer<typeof meanings>; execution: z.infer<typeof execution>; candidate: GroundedCandidate; deterministic: CandidateCheck; job_id: string; run_id: string; source: GroundedCandidate["source"] };
 
 function sourceEqual(left: GroundedCandidate["source"], right: GroundedCandidate["source"]): boolean {
   return left.source_id === right.source_id && left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;
@@ -43,13 +46,13 @@ function result(receipt: Envelope<unknown>, kind: "query" | "search", matchedCou
 }
 function buildQuery(proposal: z.infer<typeof analystProposal>, receipt: Envelope<unknown>): PublicationBuild | null {
   const query = queryResultV2.safeParse(receipt.payload);
-  if (!query.success || query.data.rows.length !== 1 || query.data.columns.length !== 1) return null;
+  if (!query.success || proposal.sql === null || query.data.actual_sql !== proposal.sql || query.data.rows.length !== 1 || query.data.columns.length !== 1) return null;
   const cell = query.data.rows[0][0];
   if (cell.type !== "integer") return null;
   const value = cell.value;
-  const semantics = query.data.actual_sql.toLowerCase();
-  const units = /\bsum\s*\(\s*(?:units|net_units)\s*\)/u.test(semantics);
-  const cents = /\bsum\s*\(\s*revenue_cents\s*\)/u.test(semantics);
+  const semantics = query.data.actual_sql.trim();
+  const units = /^select\s+sum\s*\(\s*net_units\s*\)\s+as\s+net_units\s+from\s+(?:main\.)?sales$/iu.test(semantics);
+  const cents = /^select\s+sum\s*\(\s*revenue_cents\s*\)\s+as\s+revenue_cents\s+from\s+(?:main\.)?sales$/iu.test(semantics);
   if (units === cents) return null;
   const unit = units ? "net_units" as const : "USD_cents" as const;
   const text = `${value} ${unit === "USD_cents" ? "USD cents" : "net_units"}`;
@@ -63,7 +66,8 @@ function buildQuery(proposal: z.infer<typeof analystProposal>, receipt: Envelope
 }
 function buildSearch(proposal: z.infer<typeof analystProposal>, receipt: Envelope<unknown>): PublicationBuild | null {
   const search = searchReceiptV2.safeParse(receipt.payload);
-  if (!search.success) return null;
+  if (!search.success || search.data.request.query !== proposal.query || search.data.request.channel !== proposal.channel ||
+    search.data.request.customer !== proposal.customer || search.data.request.start !== proposal.start || search.data.request.end !== proposal.end) return null;
   const evidence = result(receipt, "search", search.data.matched_count);
   if (search.data.hits.length === 0) {
     const text = TARGETED_LIMITATIONS[1];
@@ -86,8 +90,8 @@ export function buildPublication(proposalInput: unknown, receipt: Envelope<unkno
   if (!proposal.success || proposal.data.status !== "plan" || payloadSource === undefined || !sourceEqual(proposal.data.source, payloadSource)) return null;
   return proposal.data.mode === "query" ? buildQuery(proposal.data, receipt) : proposal.data.mode === "search" ? buildSearch(proposal.data, receipt) : null;
 }
-export function buildEvidence(context: EvidenceContext, receipt: Envelope<unknown>): z.infer<typeof publicationEvidence> | null {
-  const value = publicationEvidence.safeParse({ context, execution: receipt });
+export function buildEvidence(context: EvidenceContext, receipt: Envelope<unknown>, meaning: z.infer<typeof meanings> = { catalog: null, profile: null }): z.infer<typeof publicationEvidence> | null {
+  const value = publicationEvidence.safeParse({ meanings: meaning, context, execution: receipt });
   return value.success ? value.data : null;
 }
 function validatorJson(raw: unknown): unknown {
@@ -106,11 +110,15 @@ export async function buildLineage(context: EvidenceContext): Promise<z.infer<ty
     hit_refs: context.hits.map((hit) => hit.message_id) });
 }
 export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Promise<z.infer<typeof validatorVerdict> | null> {
-  const body = JSON.stringify({ version: "1", question: input.question, proposal: input.proposal, evidence_context: input.context, execution_receipt: input.execution,
-    candidate: input.candidate, deterministic_check: input.deterministic });
+  const candidate_sha256 = await payloadSha256(input.candidate);
+  const plan_sha256 = await payloadSha256(input.proposal);
+  const payload = { version: "1", question: input.question, job_id: input.job_id, run_id: input.run_id, source: input.source, proposal: input.proposal, meanings: input.meanings, evidence_context: input.context, execution_receipt: input.execution,
+    candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
+  const validator_input_sha256 = await payloadSha256(payload);
+  const body = JSON.stringify({ ...payload, validator_input_sha256 });
   const request = { messages: [{ role: "system" as const, content: VALIDATOR }, { role: "user" as const, content: body }],
     response_format: { type: "json_schema" as const, json_schema: { type: "object", additionalProperties: false,
-      properties: { version: { const: "1" }, request_id: { type: "string" }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, candidate_sha256: { type: "string" }, validator_call_id: { type: "string" }, policy_revision: { const: "m4-validator.v1" }, claims: { type: "array", maxItems: 12 }, summary: { type: "string", maxLength: 512 } }, required: ["version", "request_id", "overall", "deterministic_pass", "candidate_sha256", "validator_call_id", "policy_revision", "claims", "summary"] } },
+      properties: { version: { const: "1" }, request_id: { type: "string" }, job_id: { type: "string" }, run_id: { type: "string" }, source: { type: "object", additionalProperties: false, properties: { version: { const: "1" }, source_id: { type: "string" }, snapshot_sha256: { type: "string" }, meaning_revision: { type: "string" } }, required: ["version", "source_id", "snapshot_sha256", "meaning_revision"] }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, candidate_sha256: { type: "string" }, plan_sha256: { type: "string" }, validator_input_sha256: { type: "string" }, validator_call_id: { type: "string" }, policy_revision: { const: "m4-validator.v1" }, claims: { type: "array", maxItems: 12 }, summary: { type: "string", maxLength: 512 } }, required: ["version", "request_id", "job_id", "run_id", "source", "overall", "deterministic_pass", "candidate_sha256", "plan_sha256", "validator_input_sha256", "validator_call_id", "policy_revision", "claims", "summary"] } },
     max_tokens: VALIDATOR_MAX_TOKENS, temperature: 0 };
   if (new TextEncoder().encode(JSON.stringify(request)).byteLength > VALIDATOR_INPUT_BYTES) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -118,7 +126,7 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
     const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), 30_000); });
     const raw = await Promise.race([env.AI.run(PLANNER_MODEL, request), timeout]);
     const value = validatorVerdict.safeParse(validatorJson(raw));
-    if (!value.success || value.data.request_id !== input.candidate.request_id || value.data.candidate_sha256 !== await payloadSha256(input.candidate)) return null;
+    if (!value.success || value.data.request_id !== input.candidate.request_id || value.data.candidate_sha256 !== candidate_sha256 || value.data.plan_sha256 !== plan_sha256 || value.data.validator_input_sha256 !== validator_input_sha256 || value.data.job_id !== input.job_id || value.data.run_id !== input.run_id || !sourceEqual(value.data.source!, input.source)) return null;
     return value.data;
   } catch { return null; } finally { if (timer !== undefined) clearTimeout(timer); }
 }

@@ -48,7 +48,7 @@ Worker for preview verification. Before a deployed app publish, replace the
 empty `TOOLS_BUILD_REVISION` and `TOOLS_WORKER_VERSION_ID` vars with the exact
 private tools Worker build revision and version-metadata UUID; blank values fail
 closed. The separate Validator uses the same free-only Llama 3.3 model with a
-12,288-byte input cap, 8,192-byte output cap, 256 output tokens, zero temperature
+40,960-byte input cap, 8,192-byte output cap, 256 output tokens, zero temperature
 and no automatic retry. This package does not deploy or enable paid billing. The
 planner gateway also uses `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, with 12,288-byte input,
 8,192-byte output, one call, zero temperature and no automatic retry. Its local
