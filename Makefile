@@ -30,6 +30,9 @@ typescript-gate:
 	npm ci --prefix workers/agent
 	npm run typecheck --prefix workers/agent
 	npm test --prefix workers/agent
+	npm ci --prefix workers/app
+	npm run typecheck --prefix workers/app
+	npm test --prefix workers/app
 
 gate:
 	uv run ruff format --check .

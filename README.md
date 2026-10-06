@@ -6,6 +6,10 @@ The Cloudflare Agent, Python execution, Workers AI and web chat are planned in
 the [delivery plan](docs/mvp-delivery-plan.md). The original
 [architecture](docs/architecture.md) remains the design reference.
 
+The separate [app contract foundation](workers/app/README.md) prepares strict
+demo-source/model proposal contracts and Python v2 evidence verification. It has
+no public routes or deployment yet; `make gate` includes its TypeScript checks.
+
 Use Python >=3.12, [uv](https://docs.astral.sh/uv/) and Make:
 
 ```sh
