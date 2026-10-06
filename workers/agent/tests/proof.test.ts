@@ -114,6 +114,7 @@ describe("restricted native proof bridge", () => {
     storage.get.mockResolvedValueOnce(storage.put.mock.calls.at(-1)?.[1]);
     const refreshed = await agent.onRequest(new Request("https://proof.example/v2/session"));
     expect((await refreshed.json() as { selected_source: { source_id: string } }).selected_source.source_id).toBe("support");
+    expect((await worker.fetch(request("/v2/source", { source: supportBody.selected_source }), env)).status).toBe(400);
     const reset = await worker.fetch(request("/v2/reset", { version: "2" }), env);
     expect((await reset.json() as { selected_source: null }).selected_source).toBeNull();
   });

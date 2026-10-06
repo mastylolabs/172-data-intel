@@ -1,5 +1,6 @@
 import { Agent, type Connection } from "agents";
 import { DurableObject as DurableObjectBase } from "cloudflare:workers";
+import { z } from "zod";
 import {
   AGENTS_VERSION,
   agentRuntime,
@@ -26,6 +27,8 @@ import {
   sourceV2,
   type SessionStateV2,
 } from "./v2-state";
+const v2SourceRequest = z.strictObject({ version: z.literal("2"), source: sourceV2 });
+const v2EmptyRequest = z.strictObject({ version: z.literal("2") });
 export interface Env {
   ProofAgent: DurableObjectNamespace<ProofAgent>;
   ProofBudget: DurableObjectNamespace<ProofBudget>;
@@ -514,15 +517,15 @@ export class ProofAgent extends Agent<Env, State> {
     if (request.method !== "POST") return fail("not_found", 404);
     const body = await boundedJson(request, 4096);
     if (path === "/v2/source") {
-      if (typeof body !== "object" || body === null || !("source" in body)) throw new Error("invalid_input");
-      return this.writeV2State(selectSource(state, sourceV2.parse((body as { source: unknown }).source)));
+      const parsed = v2SourceRequest.parse(body);
+      return this.writeV2State(selectSource(state, parsed.source));
     }
     if (path === "/v2/reset") {
-      if (JSON.stringify(body) !== JSON.stringify({ version: "2" })) throw new Error("invalid_input");
+      v2EmptyRequest.parse(body);
       return this.writeV2State(resetSession(state));
     }
     if (path === "/v2/cancel") {
-      if (JSON.stringify(body) !== JSON.stringify({ version: "2" })) throw new Error("invalid_input");
+      v2EmptyRequest.parse(body);
       return this.writeV2State(cancelJob(state));
     }
     return fail("not_found", 404);
