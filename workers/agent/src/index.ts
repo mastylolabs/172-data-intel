@@ -495,7 +495,7 @@ export class ProofAgent extends Agent<Env, State> {
     if (origin !== "server") throw new Error("access_denied");
   }
 
-  private async readV2State(): Promise<SessionStateV2> {
+  private async readV2State(allowExpired = false): Promise<SessionStateV2> {
     const stored = await this.ctx.storage.get<unknown>("m4-v2-session");
     if (stored === undefined) return initialSessionState();
     const revoked = z.strictObject({ version: z.literal("2"), revoked: z.literal(true) });
@@ -509,8 +509,10 @@ export class ProofAgent extends Agent<Env, State> {
     } catch {
       throw new Error("state_corrupt");
     }
-    if (reconciled.success || Date.parse(state.expires_at) > Date.now()) return state;
-    return this.expireV2State(state);
+    if (!reconciled.success && Date.parse(state.expires_at) > Date.now()) return state;
+    const expired = reconciled.success ? state : await this.expireV2State(state);
+    if (!allowExpired) throw new Error("session_expired");
+    return expired;
   }
 
   private async expireV2State(state: SessionStateV2): Promise<SessionStateV2> {
@@ -551,10 +553,7 @@ export class ProofAgent extends Agent<Env, State> {
   }
 
   private async onV2Request(request: Request, path: string): Promise<Response> {
-    const state = await this.readV2State();
-    if (Date.parse(state.expires_at) <= Date.now() && path !== "/v2/reset") {
-      return failV2("session_expired", 410, "transport");
-    }
+    const state = await this.readV2State(path === "/v2/reset");
     if (request.method === "GET" && path === "/v2/session") return json(publicSnapshot(state));
     if (request.method !== "POST") return failV2("not_found", 404);
     const body = await boundedJson(request, 4096);
@@ -588,6 +587,7 @@ export class ProofAgent extends Agent<Env, State> {
         return await this.onV2Request(request, path);
       } catch (error) {
         if (error instanceof Error && error.message === "access_denied") return failV2("access_denied", 403);
+        if (error instanceof Error && error.message === "session_expired") return failV2("session_expired", 410, "transport");
         if (error instanceof Error && error.message === "state_corrupt") return failV2("runtime_incompatible", 503, "transport");
         if (error instanceof Error && error.message === "state_limit") return failV2("state_limit", 413, "input");
         return failV2("invalid_input", 400, "input");
