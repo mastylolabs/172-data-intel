@@ -83,6 +83,8 @@ describe("bounded Workers AI planner gateway", () => {
     expect(quota.calls).toHaveLength(1);
     const codeOnly = fake(null, Object.assign(new Error("AI provider refused"), { code: 4006 }));
     expect(await runPlanner(codeOnly.env, context(), 100)).toMatchObject({ code: "model_quota", status: 429, provider_reason: "daily_free_allocation", automatic_retry: false });
+    const accountLimited = fake(null, Object.assign(new Error("AI provider refused"), { code: 3036 }));
+    expect(await runPlanner(accountLimited.env, context(), 100)).toMatchObject({ code: "model_quota", status: 429, provider_reason: "daily_free_allocation", automatic_retry: false });
     const statusOnly = fake(null, Object.assign(new Error("upstream refusal"), { http_status: 429 }));
     expect(await runPlanner(statusOnly.env, context(), 100)).toMatchObject({ code: "model_quota", status: 429, automatic_retry: false });
     const capacity = fake(null, new Error("3040 capacity"));

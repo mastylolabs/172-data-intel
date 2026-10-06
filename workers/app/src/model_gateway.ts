@@ -130,9 +130,9 @@ export function classifyModelError(error: unknown): PlannerFailure {
   const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : {};
   const codes = [record.code, record.provider_code, record.provider_error_code,
     ...(Array.isArray(record.provider_error_codes) ? record.provider_error_codes.slice(0, 8) : [])];
-  const code4006 = codes.some((code) => code === 4006 || code === "4006") || /\b4006\b/.test(message);
+  const codeFreeAllocation = codes.some((code) => code === 3036 || code === "3036" || code === 4006 || code === "4006") || /\b(?:3036|4006)\b/.test(message);
   const status429 = record.status === 429 || record.http_status === 429;
-  if (code4006) return failure("model_quota", "daily_free_allocation");
+  if (codeFreeAllocation) return failure("model_quota", "daily_free_allocation");
   if (/daily\s+free\s+allocation|free\s+allocation/.test(message)) return failure("model_quota", "daily_free_allocation");
   if (status429 || /\b429\b|quota|rate\s*limit/.test(message)) return failure("model_quota");
   if (/\b3036\b|account\s*limit/.test(message)) return failure("model_unavailable", "account_limited");
