@@ -36,14 +36,14 @@ The canonical v2 model-stage policy is:
 | Independent Validator | 40,960 bytes | 4,096 bytes / 512 | one call; no retry; malformed/uncertain dispatch consumes admission |
 
 All rows use the same `ProofBudget` model admission and the 12/hour session and
-24/day global ceilings. A v2 job has at most four model calls and two Python
-service tool calls: one profile plus one query/search when a plan needs both.
-P5/P6 are deterministic in-process Python checks over immutable receipts and do
-not consume model or tool admission; if an implementation exposes their optional
-private routes, those calls remain bounded validation work and are included in
-the same two-tool counter rather than creating a second budget. A stage that is
-not needed consumes no admission. Validator remediation
-is terminal `needs_clarification` or `failed`; a corrected question creates a
+24/day global ceilings. A v2 job has at most four model calls, two evidence
+service calls (profile plus query/search) and two deterministic validation
+service calls (P5/P6). The Agent invokes the private Python validation routes
+after candidate drafting; they receive only immutable bounded receipts and the
+candidate, consume `validation_calls` and the global tool-attempt budget, and
+consume no model admission. A stage that is not needed consumes no admission.
+Validator remediation is terminal `awaiting_clarification` with
+`needs_clarification` code, or `failed`; a corrected question creates a
 new request/job and receives a fresh plan, candidate and Validator pass.
 Max+1 request/output bodies refuse before dispatch, and SDK/provider retries
 are disabled. These caps are application bounds, not latency or quota claims.
@@ -548,15 +548,15 @@ plan_id/plan_sha256:nullable, generation:uint64, cancel_epoch:uint64,
 phase:queued|profiling|semantic|planning|executing|candidate|validating|
       cancel_requested|completed|awaiting_clarification|failed|interrupted|cancelled|budget_exhausted,
 started_at, deadline_at, active_run_id:UUID|null, stage_runs:[StageRunV2] (max 8),
-  model_calls:uint (max 4), query_calls:uint (max 2; includes profile plus query/search and any
-  optional private P5/P6 route calls), candidate_id/report_id/publication_id nullable,
+  model_calls:uint (max 4), evidence_calls:uint (max 2; profile plus query/search),
+  validation_calls:uint (max 2; private P5/P6 routes), candidate_id/report_id/publication_id nullable,
 error:ServiceErrorV2|null, clarification:ClarificationV2|null, accepted_answer_id:UUID|null
 ```
 
 Each `StageRunV2` has `run_id`, stage, attempt (always 1 for a technical attempt), input/output
 digests, start/finish times, runtime provenance and terminal status. No technical/provider SDK retry
 or in-job replan is automatic or permitted. Validator remediation is recorded as bounded guidance
-on a terminal `needs_clarification`/`failed` job; a corrected question must use a new request/job,
+on a terminal `awaiting_clarification`/`failed` job; a corrected question must use a new request/job,
 so every candidate always receives a fresh independent Validator call.
 
 For each new request, the DO atomically stores the queued job and input hash before any awaited
@@ -569,8 +569,9 @@ or cancel epoch and fences old work.
 
 A stage admission is reserved before dispatch and is never refunded after an uncertain timeout. MVP
 limits are: 12 model calls per session rolling hour, 24 model calls per UTC day globally, 30 accepted
-jobs per session rolling hour, 128 tool attempts per UTC day globally, 4 model calls and 2 tool calls
-per job, one active job per session, no in-job replan, 30-second model wait, 10-second service
+jobs per session rolling hour, 128 combined evidence/validation tool attempts per UTC day globally,
+4 model calls, 2 evidence calls and 2 validation calls per job, one active job per session, no in-job
+replan, 30-second model wait, 10-second service
 binding wait and 60-second job publication deadline. These are application safety limits; no reset
 or billing behavior is implied. The current P4b budget remains the global source of truth until a
 reviewed v2 budget record is merged; v2 must not create a second uncoordinated counter.

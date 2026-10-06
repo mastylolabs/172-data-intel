@@ -7,8 +7,8 @@
 - Matrix artifact and version: `M4-C0 readiness-v6`, 2026-10-06.
 - Brief: `M4-BRIEF-v1`, SHA256 `2e85ff1775ce38cb08ee675e613a2650868fb779cb6cddfeb46d36d1b5a906ec`.
 - UX/UI: `M4-UX-v2`, SHA256 `e618959760c4ccf4c627a4d32b5d1eb4c3594ab758c45679ea5c857beffa1679`.
-- Architecture: `M4-ARCH-v2`, SHA256 `723e02b59dd40a761943f554a28188201052d73ffd9187ac9f0f635e9f46f026`.
-- Threat/control: `M4-THREAT-v2`, SHA256 `0dba019e6e6154c8389f8a97e5b76b702909f600a19250da7f50c7a59ef9ff80`.
+- Architecture: `M4-ARCH-v2`, SHA256 `da63ec233b75ef3969178dd6f93bac15dcd0452b80bfe5a29611f514889c92ca`.
+- Threat/control: `M4-THREAT-v2`, SHA256 `6f9faaecfa1fbdfd5e8cced5abf2cafabe98aa5a524c05b7e52dc563812b5941`.
 - Immutable architecture: SHA256 `2046e837044efad2737cae080c011ae9c2d0f809302a7d9505749f973cf4d9dd`.
 - M2 runtime contracts: SHA256 `ddfb5fbb1aedae396a6434fc0c42ebf433280c548ea6b0ff6c684a800c1d3c21`.
 - M2 threat controls: SHA256 `2c76d264af268cc8c169ddd16fa783b55a90b7d4c64a5db1e3b09a09753a4b5f`.
@@ -54,7 +54,7 @@ tests, browser behavior, provider use, merges and deployment.
 
 ## Resolved readiness findings
 
-- **Stage policy:** ARCH-v2 §§29–43 and THREAT-v2 §§17–22 define Analyst (12,288/8,192, 512 tokens), conditional Semantic (12,288/2,048, 256), candidate (24,576/4,096, 512) and Validator (40,960/4,096, 512). Every stage uses the shared admission; max+1 refuses before dispatch; there are no stage retries or in-job replans; Validator remediation is terminal and a corrected question starts a new job. A job has at most two Python service tool calls; in-process P5/P6 checks do not consume admission, while optional private validation routes share that counter.
+- **Stage policy:** ARCH-v2 §§29–43 and THREAT-v2 §§17–22 define Analyst (12,288/8,192, 512 tokens), conditional Semantic (12,288/2,048, 256), candidate (24,576/4,096, 512) and Validator (40,960/4,096, 512). Every model stage uses the shared admission; max+1 refuses before dispatch; there are no stage retries or in-job replans; Validator remediation is terminal and a corrected question starts a new job. A job has at most two evidence service calls and two deterministic validation service calls, with one combined global tool-attempt budget; validation calls consume no model admission.
 - **Profile path:** ARCH-v2 §446–453 adds `mode:"profile"` with `complete_profile`, an explicit
   `profile_request_ref` and profile-field evidence refs; profile-only plans have one profile step
   and never claim query/search coverage. §§468–478 define the complete profile-only receipt and
