@@ -15,6 +15,41 @@ CatalogKind = Literal["structured", "messages"]
 CatalogScope = Literal["complete_immutable_fixture"]
 
 
+class _FrozenCapabilityHelp(dict[CatalogCapability, str]):
+    """Mapping used to keep server-owned capability text immutable."""
+
+    def _immutable(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("catalog capability metadata is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable  # type: ignore[assignment]  # intentionally disable mutation
+    popitem = _immutable  # type: ignore[assignment]  # intentionally disable mutation
+    setdefault = _immutable  # type: ignore[assignment]  # intentionally disable mutation
+    update = _immutable
+
+
+class _FrozenList[T](list[T]):
+    """List-shaped JSON values that cannot mutate validated catalog state."""
+
+    def _immutable(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("catalog metadata is immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    __iadd__ = _immutable  # type: ignore[assignment]  # intentionally disable mutation
+    __imul__ = _immutable  # type: ignore[assignment]  # intentionally disable mutation
+    append = _immutable
+    clear = _immutable
+    extend = _immutable
+    insert = _immutable
+    pop = _immutable  # type: ignore[assignment]  # intentionally disable mutation
+    remove = _immutable
+    reverse = _immutable
+    sort = _immutable
+
+
 class CatalogEntryV2(V2StrictModel):
     source: SourceIdentity
     schema_revision: str = Field(min_length=1, max_length=64)
@@ -59,6 +94,8 @@ class CatalogEntryV2(V2StrictModel):
             raise ValueError("invalid_input")
         if set(self.capabilities) != expected or set(self.capability_help) != expected:
             raise ValueError("capability_mismatch")
+        object.__setattr__(self, "capability_help", _FrozenCapabilityHelp(self.capability_help))
+        object.__setattr__(self, "capabilities", _FrozenList(self.capabilities))
         return self
 
 
@@ -78,6 +115,7 @@ class CatalogV2(V2StrictModel):
                 raise ValueError("source_mismatch")
         if len(canonical_json(self)) > 4_096:
             raise ValueError("result_limit")
+        object.__setattr__(self, "entries", _FrozenList(self.entries))
         return self
 
 

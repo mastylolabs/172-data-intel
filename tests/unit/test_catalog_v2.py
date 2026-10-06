@@ -114,3 +114,15 @@ def test_catalog_rejects_fabricated_manifest_and_unknown_fields() -> None:
             registered_catalog().model_dump(mode="json") | {"path": "/tmp/sales.csv"}
         )
     assert json.loads(registered_catalog().model_dump_json())["catalog_revision"] == "m4-catalog.v1"
+
+
+def test_registered_catalog_nested_values_are_immutable() -> None:
+    catalog = registered_catalog()
+    with pytest.raises(TypeError, match="immutable"):
+        catalog.entries[0].capabilities.append("search")
+    with pytest.raises(TypeError, match="immutable"):
+        catalog.entries[0].capability_help["query"] = "fabricated"
+    with pytest.raises(TypeError, match="immutable"):
+        catalog.entries[0].capability_help.clear()
+    with pytest.raises(TypeError, match="immutable"):
+        catalog.entries.clear()
