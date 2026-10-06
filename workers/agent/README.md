@@ -18,18 +18,18 @@ these checks alongside the Python gate.
 
 The Agent project pins Agents SDK 0.26.0, Zod 4.6.5 and Vitest 3.2.7. The Python
 tools Worker retains its separately reviewed Wrangler 4.127.1. The checked-in
-`wrangler.jsonc` declares the `ProofAgent` SQLite migration and private `TOOLS`
-service binding; deployment credentials and authorization remain operator-owned.
+`wrangler.jsonc` declares the `ProofAgent` SQLite migration, regular `ProofBudget`
+Durable Object, and private `TOOLS` service binding; deployment credentials and
+authorization remain operator-owned.
 
 The planner exposes a bounded `/proof/plan` route for the sales source. It loads
 authoritative metadata from the private Python Worker, makes one temperature-zero
 Llama 3.3 call with a JSON schema response format, validates the candidate
 `plan` or `clarify` result, and persists it in Agent state for refresh. A durable
-per-session 12-calls/hour admission and 30-second wait bound apply before model
-dispatch. The checked-in Wrangler config intentionally omits the cross-session
-`ProofBudget` binding, so deployed planning fails closed with `budget_unavailable`
-until the next reviewed budget slice adds that global 24-calls/day admission.
-Provider failures are classified without raw error details; there are no retries.
+per-session 12-calls/hour admission, global 24-calls/day `ProofBudget` admission,
+bounded 32-entry request journal, and 30-second wait bound apply before model
+dispatch. Provider failures are classified without raw error details; there are
+no retries.
 SQL execution, Validator publication, support retrieval, uploads, frontend routes,
 and async job lifecycle remain deferred. `/proof/query` is reserved and returns
 `unsupported_transport`; the synchronous engine receipt and planner candidate are

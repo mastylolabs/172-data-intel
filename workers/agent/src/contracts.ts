@@ -148,6 +148,7 @@ export const planOutput = z.discriminatedUnion("status", [
   z.strictObject({ status: z.literal("plan"), sql: text(8000), rationale: text(512) }),
   z.strictObject({ status: z.literal("clarify"), question: text(2000) }),
 ]);
+export const budgetOutput = z.strictObject({ version: z.literal("1"), admitted: z.boolean() });
 export const emptyInput = z.strictObject({ version: z.literal("1") });
 export const sourceInput = z.strictObject({
   version: z.literal("1"),
@@ -179,6 +180,7 @@ export const serviceError = z.strictObject({
     "invalid_result",
     "result_limit",
     "request_conflict",
+    "request_outcome_unavailable",
     "budget_exhausted",
     "budget_unavailable",
     "runtime_incompatible",

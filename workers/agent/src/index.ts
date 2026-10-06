@@ -1,8 +1,10 @@
 import { Agent, type Connection } from "agents";
+import { DurableObject as DurableObjectBase } from "cloudflare:workers";
 import {
   AGENTS_VERSION,
   agentRuntime,
   boundedJson,
+  budgetOutput,
   emptyInput,
   metadata,
   planInput,
@@ -16,7 +18,7 @@ import {
 } from "./contracts";
 export interface Env {
   ProofAgent: DurableObjectNamespace<ProofAgent>;
-  ProofBudget?: DurableObjectNamespace;
+  ProofBudget: DurableObjectNamespace<ProofBudget>;
   TOOLS: Fetcher;
   AI: Ai;
   PROOF_TOKEN: string;
@@ -32,7 +34,13 @@ export type State = {
   plan: ReturnType<typeof planOutput.parse> | null;
   plan_request_id: string | null;
   model_starts: number[];
+  request_journal: RequestJournalEntry[];
   revoked: boolean;
+};
+type RequestJournalEntry = {
+  request_id: string;
+  request_key: string;
+  completed: boolean;
 };
 const initialState = (): State => ({
   version: "1",
@@ -42,10 +50,41 @@ const initialState = (): State => ({
   plan: null,
   plan_request_id: null,
   model_starts: [],
+  request_journal: [],
   revoked: false,
 });
-const visibleState = (state: State): Omit<State, "revoked" | "model_starts" | "plan_request_id"> => {
-  const { revoked: _revoked, model_starts: _modelStarts, plan_request_id: _planRequest, ...publicState } = state;
+function normalizeState(value: Partial<State>): State {
+  const journal = Array.isArray(value.request_journal)
+    ? value.request_journal
+        .filter((entry): entry is RequestJournalEntry => typeof entry?.request_id === "string" && typeof entry?.request_key === "string")
+        .map((entry) => ({ request_id: entry.request_id, request_key: entry.request_key, completed: entry.completed === true }))
+        .slice(-32)
+    : [];
+  return {
+    version: "1",
+    revision: typeof value.revision === "number" ? value.revision : 0,
+    selected_source: value.selected_source === "support" ? "support" : "sales",
+    receipt: value.receipt ?? null,
+    plan: value.plan ?? null,
+    plan_request_id: value.plan_request_id ?? null,
+    model_starts: Array.isArray(value.model_starts) ? value.model_starts.filter(Number.isFinite) : [],
+    request_journal:
+      journal.length > 0
+        ? journal
+        : typeof value.plan_request_id === "string"
+          ? [{ request_id: value.plan_request_id.split(":", 1)[0], request_key: value.plan_request_id, completed: value.plan !== null }]
+          : [],
+    revoked: value.revoked === true,
+  };
+}
+const visibleState = (state: State): Omit<State, "revoked" | "model_starts" | "plan_request_id" | "request_journal"> => {
+  const {
+    revoked: _revoked,
+    model_starts: _modelStarts,
+    plan_request_id: _planRequest,
+    request_journal: _requestJournal,
+    ...publicState
+  } = state;
   return publicState;
 };
 const json = (value: unknown, status = 200): Response =>
@@ -73,6 +112,33 @@ const fail = (
     },
     status,
   );
+
+type BudgetState = { version: "1"; utc_day: string; model_calls: number };
+export class ProofBudget extends DurableObjectBase<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.method !== "POST") return json({ version: "1", admitted: false }, 404);
+    try {
+      emptyInput.parse(await boundedJson(request, 1024));
+      let admitted = false;
+      await this.ctx.blockConcurrencyWhile(async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const stored = await this.ctx.storage.get<BudgetState>("budget");
+        const current = stored?.utc_day === today ? stored : { version: "1" as const, utc_day: today, model_calls: 0 };
+        if (current.model_calls < 24) {
+          await this.ctx.storage.put("budget", { ...current, model_calls: current.model_calls + 1 });
+          admitted = true;
+        }
+      });
+      return json({ version: "1", admitted });
+    } catch {
+      return json({ version: "1", admitted: false }, 400);
+    }
+  }
+}
 
 const PLAN_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast" as const;
 const PLAN_MODEL_TIMEOUT_MS = 30_000;
@@ -190,6 +256,21 @@ export async function runPlanModel(
     if (timer !== undefined) clearTimeout(timer);
   }
 }
+async function admitGlobal(env: Env): Promise<"admitted" | "exhausted" | "unavailable"> {
+  try {
+    const id = env.ProofBudget.idFromName("m4-global");
+    const response = await env.ProofBudget.get(id).fetch("https://budget/admit", {
+      method: "POST",
+      body: JSON.stringify({ version: "1" }),
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return "unavailable";
+    const result = budgetOutput.parse(await boundedJson(response, 1024));
+    return result.admitted ? "admitted" : "exhausted";
+  } catch {
+    return "unavailable";
+  }
+}
 
 function classifyModelError(error: unknown): {
   code: "model_quota" | "model_unavailable";
@@ -290,10 +371,12 @@ async function createPlan(
   input: ReturnType<typeof planInput.parse>,
 ): Promise<Response> {
   const requestKey = `${input.request_id}:${await sha256(input.question)}`;
-  if (agent.state.plan_request_id?.startsWith(`${input.request_id}:`)) {
-    return agent.state.plan_request_id === requestKey && agent.state.plan !== null
+  const prior = agent.state.request_journal.find((entry) => entry.request_id === input.request_id);
+  if (prior) {
+    if (prior.request_key !== requestKey) return fail("request_conflict", 409, "planning");
+    return prior.completed && agent.state.plan_request_id === requestKey && agent.state.plan !== null
       ? json(visibleState(agent.state))
-      : fail("request_conflict", 409, "planning");
+      : fail("request_outcome_unavailable", 409, "planning");
   }
   const provenanceCheck = agentRuntime.safeParse({
     runtime_mode: env.RUNTIME_MODE,
@@ -301,14 +384,20 @@ async function createPlan(
     worker_version_id: env.CF_VERSION_METADATA?.id ?? null,
   });
   if (!provenanceCheck.success) return fail("runtime_incompatible", 503, "planning");
-  if (!env.ProofBudget) return fail("budget_unavailable", 503, "planning");
   const recentStarts = agent.state.model_starts.filter((start) => start > Date.now() - 3_600_000);
   if (recentStarts.length >= 12) return fail("budget_exhausted", 429, "planning");
+  const global = await admitGlobal(env);
+  if (global === "unavailable") return fail("budget_unavailable", 503, "planning");
+  if (global === "exhausted") return fail("budget_exhausted", 429, "planning");
   agent.setState({
     ...agent.state,
     plan: null,
     plan_request_id: requestKey,
     model_starts: [...recentStarts, Date.now()],
+    request_journal: [
+      ...agent.state.request_journal,
+      { request_id: input.request_id, request_key: requestKey, completed: false },
+    ].slice(-32),
     revision: agent.state.revision + 1,
   });
   let meta: ReturnType<typeof metadata.parse>;
@@ -344,6 +433,9 @@ async function createPlan(
     ...agent.state,
     plan,
     plan_request_id: requestKey,
+    request_journal: agent.state.request_journal.map((entry) =>
+      entry.request_key === requestKey ? { ...entry, completed: true } : entry,
+    ),
     revision: agent.state.revision + 1,
   });
   return json(visibleState(agent.state));
@@ -389,6 +481,10 @@ export class ProofAgent extends Agent<Env, State> {
   }
 
   async onRequest(request: Request): Promise<Response> {
+    const stored = this.state as Partial<State>;
+    if (!Array.isArray(stored.model_starts) || !Array.isArray(stored.request_journal) || stored.plan === undefined) {
+      this.setState(normalizeState(stored));
+    }
     const path = new URL(request.url).pathname;
     if (this.state.revoked) return fail("access_denied", 403);
     if (request.method === "GET" && path === "/proof/state") return json(visibleState(this.state));
