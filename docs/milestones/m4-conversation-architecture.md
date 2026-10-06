@@ -6,11 +6,40 @@
 - **Status:** `READY_FOR_REVIEW` after the M4-C0 `REVISE` return; independent design review, threat review, implementation, QA, provider approval, merge and deployment remain pending.
 - **Source brief:** [M4-BRIEF-v1](m4-conversation-brief.md), recorded pre-build gate `M4-C0`; stable requirements `BR-M4-01` through `BR-M4-10` and acceptance criteria `AC-M4-01` through `AC-M4-10`.
 - **Other authority:** immutable [original architecture](../architecture.md), SHA256 `2046e837044efad2737cae080c011ae9c2d0f809302a7d9505749f973cf4d9dd`; [M3-ARCH-v1](m3-analytical-tools-contracts.md); [M2 runtime contracts](m2-runtime-contracts.md); [AGENTS.md](../../AGENTS.md).
-- **UX/UI artifact:** [M4-UX-v1](m4-conversation-ux.md), SHA256 `9c5d9e0ce26fb99d7da74eea902d580a7f0eb3dad6ddaf43a52ebe2755a56c0c`. The job state and response distinctions below are reconciled with that UX contract; independent design-architecture review remains pending and no new public-access policy is invented here.
+- **UX/UI artifact:** [M4-UX-v2](m4-conversation-ux.md); its exact hash is recorded by the readiness matrix. The job state and response distinctions below are reconciled with that UX contract; independent design-architecture review remains pending and no new public-access policy is invented here.
 - **Current repository/revision inspected:** `origin/main` `d4e03731af28ce1c9c0b53b8c59a133acd3edd4a`, with current merged M3 source files and M4 planning/budget reports. Current working HEAD may contain uncommitted brief work; this artifact does not depend on it.
 - **Decision owner and receivers:** principal architect owns this proposal; coordinator routes it to the M3 contract owners, backend/Agent implementers, UX owner, threat/security reviewer and independent design-architecture reviewer. This v2 resolves GAP-01–06 from the prior readiness matrix.
 - **Human build-gate state:** the user’s full GO authorizes approved milestones and guarded delivery. It does not replace independent readiness, QA, configured provider review, branch protection or guarded merge.
 - **Replaces or depends on:** depends on M3 source identities and merged P1–P4b behavior. It is additive to v1 and does not rewrite v1 state or contracts.
+
+## M2 control amendments for v2
+
+M2 `CTRL-06` and `CTRL-07` remain unchanged for every v1 `/proof/*` path and
+for the v1 planner: its 12,288-byte input, 8,192-byte output, one-model/one-
+query job and existing 12/hour session plus 24/day global admissions still
+apply. This M4 contract adds a separately versioned v2 Validator context with
+the 32,768-byte cap above because it must carry complete bounded receipts and
+field meanings; it has its own 4,096-byte output cap, strict JSON verdict and
+the same no-stream/no-technical-retry rules. The v2 six-model/two-tool job
+ceiling is stage accounting under the existing session/hour and global/day
+ceilings, not a quota increase or a widening of v1. A v2 admission record
+must consume the existing `ProofBudget` owner, and mixed-version calls cannot
+share or reset counters.
+
+The canonical v2 model-stage policy is:
+
+| Stage | Context/request cap | Output cap / max tokens | Admission and retry |
+| --- | ---: | ---: | --- |
+| Analyst planning | 12,288 bytes | 8,192 bytes / 512 | one call; one optional bounded replan; same session/global counter |
+| Conditional Semantic clarification | 12,288 bytes | 2,048 bytes / 256 | zero or one call only when meanings are unresolved; no retry |
+| Candidate drafting | 24,576 bytes | 4,096 bytes / 512 | one call; no retry; candidate remains private |
+| Independent Validator | 32,768 bytes | 4,096 bytes / 512 | one call; no retry; malformed/uncertain dispatch consumes admission |
+
+All rows use the same `ProofBudget` model admission and the 12/hour session and
+24/day global ceilings. A v2 job has at most six model calls (including one
+replan) and two tool calls; a stage that is not needed consumes no admission.
+Max+1 request/output bodies refuse before dispatch, and SDK/provider retries
+are disabled. These caps are application bounds, not latency or quota claims.
 
 ## Scope, goals, and non-goals
 
@@ -280,8 +309,13 @@ consumes no tool or model admission. Private binding timeout has no automatic re
 The following are the canonical public projections for Agent/UI consumers. All
 objects are strict v2 objects; IDs are UUIDs and every text field has the byte
 limit shown. `SessionSnapshotV2` contains `revision`, `selected_source`,
-`catalog_revision`, `job: JobStatusV2|null`, `history`, `accepted_memory`,
-`dropped_history`, `actions` and `expires_at`. `JobStatusV2` contains
+`catalog_revision`, `job: JobStatusV2|null`, `history`,
+`accepted_answers:[AcceptedAnswerV2]` (at most four owned answers with their
+`AcceptedEvidenceV2` projections), `accepted_memory`, `dropped_history`,
+`actions` and `expires_at`. `GET /v2/session` returns this snapshot at one
+durable revision, is capped at 65,536 bytes, and returns either all listed
+accepted projections or typed `evidence_unavailable` markers; no unnamed
+client-created detail route is required. `JobStatusV2` contains
 `job_id`, `request_id`, `phase`, `source`, `progress_stage`, `message`,
 `clarification: ClarificationV2|null`, `candidate_visible:false`,
 `accepted_answer_id`, `error`, `started_at`, `deadline_at` and `revision`.
@@ -291,7 +325,12 @@ The only allowed `actions` are `submit`, `cancel`, `select_source`, `reset`,
 
 `ClarificationV2` contains `clarification_id`, `job_id`, `request_id`,
 `source`, `question` (512 bytes), `reason` (`missing_meaning|ambiguous_period|
-unsupported_scope|missing_filter`), `expires_at` and `resolved:false|true`.
+unsupported_scope|missing_filter`), `expires_at`, `resolved:false|true`, and
+`resolution: {response_id, answer, response_sha256, resolved_at}|null` where
+`answer` is at most 512 bytes and is bound to the same `clarification_id`,
+`request_id`, source tuple and next `job_id`; a response cannot be reused for a
+different question or source. `ClarificationSummaryV2` stores only those IDs,
+the source label and a 256-byte summary after resolution.
 `EvidenceRefV2` contains `evidence_id`, `kind` (`query|search|profile`),
 `source`, `payload_sha256`, `receipt_id`, `scope`, `coverage` and
 `availability` (`available|evidence_unavailable`); it carries no path or raw
@@ -302,6 +341,16 @@ diagnostic. `AcceptedAnswerV2` contains `answer_id`, `publication_id`,
 of an accepted answer, clarification or failure with `entry_id`, `kind`,
 `created_at`, `source`, `answer_id|null`, `status`, `summary` (512 bytes),
 `evidence_ids` (at most 8) and `availability`.
+
+Each accepted answer also stores an `AcceptedEvidenceV2` projection for every
+material claim or citation: `evidence_id`, `kind`, `source`, `receipt_id`,
+`payload_sha256`, `scope`, `coverage`, `availability`, and a bounded
+`display_payload` containing the complete referenced numeric cells or complete
+support hits/quotes plus counts and fixed limitations. A query projection is
+limited to 4,096 bytes and a search projection to 6,144 bytes; unreferenced
+receipt rows remain represented by their verified receipt hash and are never
+rendered as accepted evidence. The projection is the refresh-safe evidence
+view, not a rewritten analytical receipt, and is included in state-cap accounting.
 
 The source-switch transition is explicit: when idle, persist the new catalog
 tuple and clear only unresolved clarification; when active, atomically bump
@@ -406,7 +455,7 @@ with one bounded question/limitation and no tool dispatch.
 A `CandidateAnswerV2` is private until publication and contains:
 
 - `version:"2"`, `candidate_id`, `job_id`, `run_id`, question and source identity;
-- `plan_id/sha256`, ordered `claims` (maximum 12), ordered `citations` (maximum 8), bounded answer text (maximum 6,000 UTF-8 bytes), explicit limitations (maximum 4), and requested-question coverage;
+- `plan_id/sha256`, ordered `claims` (maximum 12), ordered `citations` (maximum 8), bounded answer text (maximum 4,096 UTF-8 bytes), explicit limitations (maximum 4), and requested-question coverage;
 - every material claim’s typed numeric value/result refs or typed citation refs; qualitative text without evidence is non-material only when labeled limitation/clarification;
 - `candidate_sha256`, `analyst_runtime`, `model_id` and `prompt_revision`.
 
@@ -414,16 +463,15 @@ A candidate with a fabricated result ref, unsupported claim, unsupported citatio
 source/scope/unit, omitted material claim disposition or altered quote is rejected. Candidate text,
 claims and citations are not copied into accepted history until publication passes.
 
-`ValidatorInputV2` is constructed by the Agent from immutable original question, resolved
-clarification, plan, profile/semantic refs, candidate, P5/P6 reports, source/runtime provenance and
-requested-question coverage. It carries a lossless `evidence_projection.v1`, not arbitrary full
-receipts: every material numeric cell and every cited support hit (including its complete quote,
-counts, limitations, source tuple and payload hash) is included; unreferenced rows remain available
-only behind their verified receipt hash. The projection is capped at 8,192 bytes, candidate text
-and claims at 4,096 bytes, plan/question/provenance at 4,096 bytes, and checks/report dispositions
-at 4,096 bytes. The canonical input cap is 24,576 bytes, with a written worst-case sum of 20,480
-bytes and boundary tests; overflow refuses `result_limit` before dispatch. Its digest is recorded
-before dispatch. It contains no client state authority and no raw credentials.
+`ValidatorInputV2` is constructed by the Agent from the immutable original question, resolved
+clarification, the complete bounded profile/field-meaning context (or the complete catalog meaning
+context for support), the complete actual query or search receipt, candidate, P5/P6 reports, source
+and runtime provenance, and requested-question coverage. A single job has one tool receipt: the
+worst-case byte calculation is profile/meanings 4,096 + query receipt 16,384 + candidate 4,096 +
+plan/question/provenance 4,096 + checks/report dispositions 4,096 = 32,768 bytes. Search jobs
+use an 8,192-byte receipt and remain below that cap. The canonical input cap is therefore 32,768
+bytes with max+1 boundary tests; no rows, meanings or material evidence are silently dropped.
+Its digest is recorded before dispatch. It contains no client state authority and no raw credentials.
 
 `ValidatorReportV2` contains `version:"2"`, `report_id`, `job_id`, `run_id`, `candidate_id`,
 `candidate_sha256`, `plan_sha256`, `source`, `validator_policy:"m4-validator.v1"`,
@@ -453,7 +501,8 @@ migration displays v1 artifacts, each must carry `historical_v1` and remain non-
 
 ```text
 version:"2", revision:uint64, selected_source:SourceIdentity|null,
-selected_catalog_revision, history:[AcceptedAnswerSummaryV2|ClarificationSummaryV2|FailureSummaryV2] (max 12),
+selected_catalog_revision, history:[HistoryEntryV2] (max 12),
+accepted_answers:[AcceptedAnswerV2] (max 4 owned answers with AcceptedEvidenceV2 projections),
 accepted_memory:[AcceptedMemoryV2] (max 4 same-source summaries), dropped_history:uint,
 active_job:JobRecordV2|null, expires_at:UTC timestamp
 ```
@@ -461,11 +510,12 @@ active_job:JobRecordV2|null, expires_at:UTC timestamp
 Accepted memory stores bounded text plus lineage (`answer_id`, source tuple, plan/report hashes,
 accepted-at) and never stores rejected candidate prose or unverified model summaries. Canonical
 state accounting is UTF-8 bytes of the sorted-key JSON projection, including field names and arrays:
-each history entry is <=1,024 bytes, accepted-memory entry <=4,096, clarification/error <=1,024,
+each history entry is <=1,024 bytes, accepted-memory entry <=4,096, accepted answer plus its
+evidence projections <=12,288, clarification/error <=1,024,
 the active job <=4,096, and each request-journal outcome is only `{request_id,input_sha256,job_id,
 terminal_code,publication_id|null}` <=256 bytes (32 entries maximum). The complete state must be
-<=65,536 bytes before every write. When a new accepted entry would exceed the cap, evict oldest
-accepted-memory entries first, then oldest history entries, replacing each with an
+<=65,536 bytes before every write. When a new accepted entry would exceed the cap, evict its oldest
+accepted answer/evidence projection and accepted-memory entry first, then oldest history entries, replacing each with an
 `evidence_unavailable` marker; never evict the active job, current selection, clarification or the
 last journal outcome needed for same-request replay. If the marker itself cannot fit, refuse the
 publication with `state_limit` and keep the candidate private. History is logically retained for
@@ -681,7 +731,7 @@ ownership; it does not claim implementation, QA, runtime, provider, merge or dep
 | Free quota may remain exhausted | observed historical failure in M2 reports | Live Llama acceptance remains unverified | mocks for routine work; one free-only live probe later; never enable billing | coordinator/operations |
 | Background execution may stop after request/disconnect | prior reports explicitly unverified | Candidate may remain terminal interrupted | durable queued state, expiry reconciliation and deployed lifetime probes; no false completion | Agent/runtime/QA |
 | Client cookie possession permits session access | existing operator model | No strong user identity/privacy guarantee | synthetic-only private scope; future auth requires new threat contract | security/product |
-| UX state naming and public transport are not yet independently reviewed | M4-UX-v1 now supplies the state/accessibility contract; design readiness is pending | M4/M5 handoff ambiguity | design review checks the exact UX/architecture trace before visible implementation | UX owner/reviewer |
+| UX state naming and public transport are not yet independently reviewed | M4-UX-v2 supplies the state/accessibility contract; design readiness is pending | M4/M5 handoff ambiguity | design review checks the exact UX/architecture trace before visible implementation | UX owner/reviewer |
 
 No unresolved issue here requires a new human product decision within the already authorized synthetic
 MVP. Any proposed public access, private-data handling, paid usage, larger workload or new infrastructure
@@ -701,6 +751,6 @@ is outside this handoff and must return to its owning decision authority.
 - **Acceptance status:** `AC-M4-01` through `AC-M4-10` unverified; ARCH-1 through ARCH-9 are proposed implementation criteria. No acceptance, merge, provider approval or deployment is implied.
 - **Evidence state and limits:** source/document/code inspection only; current M3 reports are historical prerequisites, not fresh v2 evidence. No runtime, test, provider, security, browser, restart, cancellation, live model or deployed check was performed here.
 - **Assumptions and impact:** private service binding, existing operator transport and one shared budget owner remain available. If false, stop at that boundary and return an evidence-backed alternative; do not expose a public route or reset counters.
-- **Unresolved decisions:** independent reviewers must confirm the additive state boundary, one-write publication, strict non-exact refusal, shared budgets and server-derived session routing. UX must reconcile visible state names; security must review candidate/evidence/model handling.
+- **Unresolved decisions:** independent reviewers must confirm the additive state boundary, one-write publication, strict non-exact refusal, shared budgets and server-derived session routing. UX-v2 already reconciles visible state names; security must review candidate/evidence/model handling.
 - **Residual risks:** deployed DO lifetime/restart, free model availability, semantic SQL correctness, cookie-based identity and browser evidence remain explicit above.
 - **Actual external-action state:** no branch, code, PR, commit, provider review/approval, merge or deployment occurred in this authoring slice.
