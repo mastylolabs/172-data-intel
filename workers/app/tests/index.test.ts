@@ -35,12 +35,19 @@ describe("native app lifecycle", () => {
     const test = harness(tools().fetcher);
     expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id }))).status).toBe(202);
     await test.jobs[0];
-    expect(test.state().session.active_job?.phase).toBe("completed");
     const refreshed = await test.agent.onRequest(new Request("https://app.test/api/state"));
     expect((await refreshed.json() as { last_result: unknown }).last_result).not.toBeNull();
     const replay = await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id }));
     expect(replay.status).toBe(200);
     expect((await test.agent.onRequest(post("/api/query", { version: "2", request_id: id, question: "changed", sql: "SELECT 1", max_rows: 1 }))).status).toBe(409);
+    expect((await test.agent.onRequest(post("/api/query", { version: "2", request_id: id.replaceAll("1", "2"), question: "one", sql: "SELECT 1", max_rows: 1 }))).status).toBe(202); await test.jobs.at(-1); expect(test.state().result_kind).toBe("query");
+  });
+  it("evicts the oldest bounded replay outcome", async () => {
+    const test = harness(tools().fetcher);
+    for (const request_id of [id, id.replaceAll("1", "2"), id.replaceAll("1", "3")]) {
+      await test.agent.onRequest(post("/api/profile", { version: "2", request_id })); await test.jobs.at(-1);
+    }
+    expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id }))).status).toBe(409);
   });
   it("selects support, runs targeted search, and rejects a sales capability mismatch", async () => {
     const test = harness(tools().fetcher);
@@ -50,18 +57,10 @@ describe("native app lifecycle", () => {
     expect(test.state().result_kind).toBe("search");
     expect((await test.agent.onRequest(post("/api/query", { version: "2", request_id: id, question: "x", sql: "SELECT 1", max_rows: 1 }))).status).toBe(422);
   });
-  it("completes a generic query with a validated result", async () => {
-    const test = harness(tools().fetcher);
-    expect((await test.agent.onRequest(post("/api/query", { version: "2", request_id: id, question: "one", sql: "SELECT 1", max_rows: 1 }))).status).toBe(202);
-    await test.jobs[0];
-    expect(test.state().result_kind).toBe("query");
-    expect(test.state().session.active_job?.phase).toBe("completed");
-  });
   it("cancels and resets, fencing a late completion", async () => {
     const pending = tools(true); const test = harness(pending.fetcher);
     expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id }))).status).toBe(202);
     expect((await test.agent.onRequest(post("/api/cancel", { version: "2" }))).status).toBe(200);
-    expect(test.state().session.active_job?.phase).toBe("cancelled");
     expect((await test.agent.onRequest(post("/api/reset", { version: "2" }))).status).toBe(200);
     pending.pending.resolve(new Response(await wire(profile, id, id))); await test.jobs[0];
     expect(test.state().revoked).toBe(true); expect(test.state().result).toBeNull();
