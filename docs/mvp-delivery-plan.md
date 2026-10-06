@@ -43,6 +43,13 @@ full engineering gate, measured coverage and a clean non-uploading Worker dry-ru
 This foundation does not add the native Agent, AI or deployment; the dependent
 restricted Agent/state/budget/proof bridge owns actual deployed service receipts.
 
+P3b is split to preserve the 400-line ceiling after normal formatting:
+**P3b-1** is the independently tested TypeScript project/wire-validation foundation
+(strict schemas, bounded streams and Python hash parity); **P3b-2** depends on its
+reviewed merge and adds the native Agent, authenticated cookie-isolated engine
+bridge and service-failure tests. Deployment, async lifecycle/budgets and AI-chain
+acceptance remain separate dependent work; P3b-1 is not a deployable Worker.
+
 M2 preview resources must use distinct names from the reference application's
 resources. The reference repository `/Users/zbigniew/dev/code/172x-data-intelligence`,
 its PRs and running deployment remain unchanged. Reuse inspected sound components
