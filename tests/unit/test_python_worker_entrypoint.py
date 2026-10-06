@@ -40,6 +40,11 @@ class _BrokenRequest:
         raise JsException("url unavailable")
 
 
+class _MetadataId:
+    def __str__(self) -> str:
+        return WORKER_ID
+
+
 def test_private_entrypoint_requires_own_provenance_and_has_no_public_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -57,7 +62,7 @@ def test_private_entrypoint_requires_own_provenance_and_has_no_public_route(
     worker.env = SimpleNamespace(
         RUNTIME_MODE="deployed",
         BUILD_REVISION=REVISION,
-        CF_VERSION_METADATA=SimpleNamespace(id=WORKER_ID),
+        CF_VERSION_METADATA=SimpleNamespace(id=_MetadataId()),
     )
     valid = asyncio.run(worker.fetch(SimpleNamespace(method="GET", url="https://tools/support")))
     assert (valid.status, json.loads(valid.body)["code"]) == (404, "not_found")
