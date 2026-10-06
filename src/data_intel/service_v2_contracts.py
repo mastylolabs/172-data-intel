@@ -72,6 +72,7 @@ PayloadT = TypeVar("PayloadT", bound=BaseModel)
 
 
 class ServiceEnvelopeV2(V2StrictModel, Generic[PayloadT]):  # noqa: UP046
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=False)
     version: Literal["2"]
     job_id: UUID | None
     run_id: UUID | None
@@ -79,6 +80,19 @@ class ServiceEnvelopeV2(V2StrictModel, Generic[PayloadT]):  # noqa: UP046
     payload: PayloadT
     payload_sha256: V2Digest
     runtime: RuntimeProvenanceV2
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_payload_as_wire_json(cls, value: object) -> object:
+        if not isinstance(value, dict) or not isinstance(value.get("payload"), dict):
+            return value
+        metadata = getattr(cls, "__pydantic_generic_metadata__", {})
+        arguments = metadata.get("args", ()) if isinstance(metadata, dict) else ()
+        payload_type = arguments[0] if arguments else None
+        if isinstance(payload_type, type) and issubclass(payload_type, BaseModel):
+            raw_payload = json.dumps(value["payload"], ensure_ascii=False, allow_nan=False)
+            return {**value, "payload": payload_type.model_validate_json(raw_payload)}
+        return value
 
     @model_validator(mode="after")
     def verify_payload_digest_and_size(self) -> "ServiceEnvelopeV2[PayloadT]":

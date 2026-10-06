@@ -8,6 +8,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from data_intel.search_models import SearchReceiptV2, SearchRequestV2
 from data_intel.service_v2_contracts import (
     RuntimeProvenanceV2,
     ServiceEnvelopeV2,
@@ -17,6 +18,8 @@ from data_intel.service_v2_contracts import (
     canonical_json,
     payload_sha256,
 )
+from data_intel.support_demo import SUPPORT_SOURCE
+from data_intel.support_search import search_support
 
 JOB_ID = UUID("20fdc73a-5ac2-4ee4-a6f8-a3f175455f7b")
 RUN_ID = UUID("d2ebca4d-b6ce-4c98-a9e0-d7fa8e6f9ba0")
@@ -110,6 +113,23 @@ def test_runtime_rejects_omitted_contract_revision() -> None:
     del data["service_contract_revision"]
     with pytest.raises(ValidationError, match="Field required"):
         RuntimeProvenanceV2.model_validate(data)
+
+
+def test_real_search_receipt_round_trips_through_json_envelope() -> None:
+    receipt = search_support(SearchRequestV2(source=SUPPORT_SOURCE, query="export", max_hits=2))
+    envelope = ServiceEnvelopeV2[SearchReceiptV2](
+        version="2",
+        job_id=None,
+        run_id=None,
+        receipt_id=None,
+        payload=receipt,
+        payload_sha256=payload_sha256(receipt),
+        runtime=_runtime(),
+    )
+    assert (
+        ServiceEnvelopeV2[SearchReceiptV2].model_validate_json(envelope.model_dump_json())
+        == envelope
+    )
 
 
 def test_runtime_provenance_requires_deployed_worker_metadata() -> None:
