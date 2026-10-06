@@ -7,7 +7,7 @@ import {
 } from "./transport";
 import { runPlanner, type ModelEnv, type PlannerFailure, type PlannerResult } from "./model_gateway";
 import { analystProposal, validateCandidate, type AnalystProposal } from "./model_contracts";
-import { buildLineage, buildPublication, publicationLineage, publicationOutcome, publishAnswer, runValidator, type PublicationOutcome } from "./publication";
+import { buildEvidence, buildLineage, buildPublication, publicationEvidence, publicationLineage, publicationOutcome, publishAnswer, runValidator, type PublicationOutcome } from "./publication";
 import {
   beginJob, cancelJob, finishJob, initialSessionState, parseSessionState, publicSnapshot,
   resetSession, selectSource, storeJob, type JobV2, type SessionStateV2,
@@ -27,7 +27,7 @@ type PlannerOutcome =
   | { kind: "clarification"; proposal: AnalystProposal; question: string }
   | { kind: "failure"; code: PlannerFailure["code"] | "budget_exhausted"; provider_reason: string | null };
 export type PlannerState = { request_id: string; job_id: string; source: Source; generation: number; cancel_epoch: number; result: PlannerOutcome };
-export type PublicationState = { request_id: string; job_id: string; source: Source; generation: number; cancel_epoch: number; lineage: z.infer<typeof publicationLineage> | null; result: PublicationOutcome };
+export type PublicationState = { request_id: string; job_id: string; source: Source; generation: number; cancel_epoch: number; lineage: z.infer<typeof publicationLineage> | null; evidence: z.infer<typeof publicationEvidence> | null; result: PublicationOutcome };
 type Outcome = { request_id: string; input_sha256: string; kind: JobKind; snapshot: PublicState };
 export type BridgeState = {
   version: "1"; session: SessionStateV2; result: Envelope<unknown> | null; result_kind: ResultKind | null;
@@ -53,7 +53,7 @@ const plannerStateSchema = z.strictObject({
 });
 const publicationStateSchema = z.strictObject({
   request_id: z.uuid(), job_id: z.uuid(), source: approvedSource,
-  generation: z.number().int().nonnegative(), cancel_epoch: z.number().int().nonnegative(), lineage: publicationLineage.nullable(), result: publicationOutcome,
+  generation: z.number().int().nonnegative(), cancel_epoch: z.number().int().nonnegative(), lineage: publicationLineage.nullable(), evidence: publicationEvidence.nullable(), result: publicationOutcome,
 });
 const json = (value: unknown, status = 200): Response => Response.json(value, {
   status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" },
@@ -100,7 +100,7 @@ function parseBridgeState(value: unknown): BridgeState {
       const active = parseSessionState(raw.session).active_job;
       if (active === null || publication.job_id !== active.job_id || publication.request_id !== active.request_id ||
         publication.generation !== active.generation || publication.cancel_epoch !== active.cancel_epoch || !sameSource(publication.source, active.source)) throw new Error("publication_owner");
-      if (publication.result.kind === "published" && (publication.lineage === null || publication.result.answer.request_id !== publication.request_id || !sameSource(publication.result.answer.source, publication.source))) throw new Error("publication_binding");
+      if ((publication.lineage === null) !== (publication.evidence === null) || (publication.result.kind === "published" && (publication.lineage === null || publication.result.answer.request_id !== publication.request_id || !sameSource(publication.result.answer.source, publication.source)))) throw new Error("publication_binding");
     }
     const modelCalls = raw.model_calls === undefined ? 0 : raw.model_calls;
     if (typeof modelCalls !== "number" || !Number.isInteger(modelCalls) || modelCalls < 0 || modelCalls > MODEL_CALL_BUDGET) throw new Error("model_calls");
@@ -112,10 +112,18 @@ function publicState(state: BridgeState): PublicState {
   return { ...publicSnapshot(state.session), last_result: state.result, planner: state.planner,
     publication: state.publication, model_calls: state.model_calls, model_calls_remaining: MODEL_CALL_BUDGET - state.model_calls };
 }
+async function checkPublicationEvidence(publication: PublicationState, runId: string | null): Promise<void> {
+  if (publication.evidence === null) { if (publication.lineage !== null) throw new Error("publication_evidence"); return; }
+  const lineage = await buildLineage(publication.evidence.context); const receipt = publication.evidence.execution;
+  const result = publication.evidence.context.results.find((item) => item.receipt_id === receipt.receipt_id);
+  if (JSON.stringify(lineage) !== JSON.stringify(publication.lineage) || result?.payload_sha256 !== receipt.payload_sha256 || receipt.job_id !== publication.job_id || (runId !== null && receipt.run_id !== runId) || !sameSource(receipt.payload.source, publication.source)) throw new Error("publication_evidence");
+  await validatedDomainEnvelope(receipt.payload.source.source_id === "sales" ? "query" : "search", receipt);
+}
 async function validState(agent: AppAgent): Promise<BridgeState> {
   const state = parseBridgeState(agent.state);
   try {
     if (state.result !== null && state.result_kind !== null) await validatedDomainEnvelope(state.result_kind, state.result);
+    if (state.publication !== null) await checkPublicationEvidence(state.publication, state.session.active_job?.active_run_id ?? null);
     for (const outcome of state.outcomes) {
       const active = outcome.snapshot.active_job as Record<string, unknown> | null;
       if (active === null || active.request_id !== outcome.request_id ||
@@ -126,7 +134,8 @@ async function validState(agent: AppAgent): Promise<BridgeState> {
         if (planner.request_id !== outcome.request_id || planner.job_id !== active.job_id) throw new Error("outcome_planner_owner");
         if (outcome.snapshot.publication !== null) {
           const publication = publicationStateSchema.parse(outcome.snapshot.publication);
-          if (publication.request_id !== outcome.request_id || publication.job_id !== active.job_id || !sameSource(publication.source as Source, active.source as Source)) throw new Error("outcome_publication_owner");
+          if (publication.request_id !== outcome.request_id || publication.job_id !== active.job_id || !sameSource(publication.source as Source, active.source as Source) || (publication.result.kind === "published" && publication.evidence === null)) throw new Error("outcome_publication_owner");
+          await checkPublicationEvidence(publication, typeof active.active_run_id === "string" ? active.active_run_id : null);
         }
       }
       if (outcome.kind !== "ask" && outcome.snapshot.last_result !== null) {
@@ -261,35 +270,36 @@ export class AppAgent extends Agent<Env, BridgeState> {
       } catch { /* reset, cancellation, or stale completion */ }
     }
   }
-  private async completePublication(job: JobV2, proposal: AnalystProposal, question: string): Promise<{ outcome: PublicationOutcome; lineage: z.infer<typeof publicationLineage> | null } | null> {
-    if (proposal.mode !== "query" && proposal.mode !== "search") return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null };
+  private async completePublication(job: JobV2, proposal: AnalystProposal, question: string): Promise<{ outcome: PublicationOutcome; lineage: z.infer<typeof publicationLineage> | null; evidence: z.infer<typeof publicationEvidence> | null } | null> {
+    if (proposal.mode !== "query" && proposal.mode !== "search") return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null, evidence: null };
     const runId = job.active_run_id;
-    if (runId === null) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null };
+    if (runId === null) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null, evidence: null };
     const body = proposal.mode === "query"
       ? { question, sql: proposal.sql, max_rows: 20 }
       : { query: proposal.query, channel: proposal.channel, customer: proposal.customer, start: proposal.start, end: proposal.end, max_hits: 5 };
     let receipt: Envelope<unknown>;
     try { receipt = await executeTool(this.env, proposal.mode, buildToolBody(proposal.mode, job.job_id, runId, job.source, body), { jobId: job.job_id, runId }); }
-    catch { return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null }; }
+    catch { return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null, evidence: null }; }
     let current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
-    if (!trustedRuntime(this.env, receipt)) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null };
+    if (!trustedRuntime(this.env, receipt)) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null, evidence: null };
     const built = buildPublication(proposal, receipt);
-    if (built === null) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null };
+    const evidence = built === null ? null : buildEvidence(built.context, receipt);
+    if (built === null || evidence === null) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage: null, evidence };
     const deterministic = validateCandidate(built.candidate, proposal, built.context);
     const lineage = await buildLineage(built.context);
-    if (!deterministic.ok) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage };
-    if (current.model_calls >= MODEL_CALL_BUDGET) return { outcome: { kind: "refusal", code: "validator_failed" }, lineage };
+    if (!deterministic.ok) return { outcome: { kind: "refusal", code: "deterministic_failed" }, lineage, evidence };
+    if (current.model_calls >= MODEL_CALL_BUDGET) return { outcome: { kind: "refusal", code: "validator_failed" }, lineage, evidence };
     try {
-      if (!(await admitPlannerBudget(this.env))) return { outcome: { kind: "refusal", code: "validator_failed" }, lineage };
-    } catch { return { outcome: { kind: "refusal", code: "validator_failed" }, lineage }; }
+      if (!(await admitPlannerBudget(this.env))) return { outcome: { kind: "refusal", code: "validator_failed" }, lineage, evidence };
+    } catch { return { outcome: { kind: "refusal", code: "validator_failed" }, lineage, evidence }; }
     current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
     this.setState({ ...current, model_calls: current.model_calls + 1 });
-    const verdict = await runValidator(this.env, { question, proposal, context: built.context, candidate: built.candidate, deterministic });
+    const verdict = await runValidator(this.env, { question, proposal, context: built.context, execution: evidence.execution, candidate: built.candidate, deterministic });
     current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
-    return { outcome: await publishAnswer(proposal, built.candidate, verdict, built.context, deterministic.ok, crypto.randomUUID()), lineage };
+    return { outcome: await publishAnswer(proposal, built.candidate, verdict, built.context, deterministic.ok, crypto.randomUUID()), lineage, evidence };
   }
   private async completePlanner(job: JobV2, question: string): Promise<void> {
     try {
@@ -333,7 +343,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
         const outcome = await this.completePublication(job, result.proposal, question);
         if (outcome === null) return;
         publication = { request_id: job.request_id, job_id: job.job_id, source: job.source,
-          generation: job.generation, cancel_epoch: job.cancel_epoch, lineage: outcome.lineage, result: outcome.outcome };
+          generation: job.generation, cancel_epoch: job.cancel_epoch, lineage: outcome.lineage, evidence: outcome.evidence, result: outcome.outcome };
         current = await validState(this);
       }
       const session = result.kind === "success" && result.proposal.status === "clarify"

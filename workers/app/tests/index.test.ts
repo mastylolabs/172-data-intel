@@ -19,11 +19,11 @@ const queryLimits = { max_sql_bytes: 8000, max_rows: 20, max_columns: 16, max_co
 const catalog = { version: "2", catalog_revision: "m4-catalog.v1", entries: [{ source, schema_revision: "sales-demo.v1", profile_revision: "m3-profile.v1", kind: "structured", display_name: "Sales demo", description: "Synthetic net sales lines for bounded structured analysis.", capability_help: { profile: "Summarize fields and bounded statistics.", query: "Ask for read-only totals, groups, rankings or period comparisons." }, capabilities: ["profile", "query"], record_count: 24, manifest_bytes: 1025, scope: "complete_immutable_fixture" }, { source: support, schema_revision: "support-demo.v1", profile_revision: null, kind: "messages", display_name: "Support messages", description: "Synthetic support messages for targeted lexical examples.", capability_help: { search: "Find matching messages with exact IDs and source quotes; hits do not establish prevalence." }, capabilities: ["search"], record_count: 16, manifest_bytes: 3091, scope: "complete_immutable_fixture" }] } as const;
 async function wire(payload: unknown, job: string | null = id, run: string | null = id, responseRuntime: TestRuntime = runtime): Promise<string> { return JSON.stringify({ version: "2", job_id: job, run_id: run, receipt_id: job, payload, payload_sha256: await payloadSha256(payload), runtime: responseRuntime }); }
 async function queryResult(job: string, run = job, responseRuntime: TestRuntime = runtime): Promise<unknown> {
-  const actual_sql = "SELECT SUM(units) AS units";
+  const actual_sql = "SELECT SUM(net_units) AS net_units";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(actual_sql));
   const sql_sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const rows = [[{ type: "integer", value: "1", exact: true }]];
-  return { version: "2", receipt_id: job, job_id: job, source, schema_revision: "sales-demo.v1", engine_policy: "m2-sqlite.v1", actual_sql, sql_sha256, columns: ["value"], rows, row_count: 1, result_sha256: await payloadSha256({ columns: ["value"], rows }), coverage: "complete_query_result", truncated: false, analytical_validated: false, limits: queryLimits, runtime: { python_version: responseRuntime.python_version, sqlite_version: responseRuntime.sqlite_version, runtime_mode: responseRuntime.runtime_mode, build_revision: responseRuntime.build_revision, worker_version_id: responseRuntime.worker_version_id } };
+  return { version: "2", receipt_id: job, job_id: job, source, schema_revision: "sales-demo.v1", engine_policy: "m2-sqlite.v1", actual_sql, sql_sha256, columns: ["net_units"], rows, row_count: 1, result_sha256: await payloadSha256({ columns: ["net_units"], rows }), coverage: "complete_query_result", truncated: false, analytical_validated: false, limits: queryLimits, runtime: { python_version: responseRuntime.python_version, sqlite_version: responseRuntime.sqlite_version, runtime_mode: responseRuntime.runtime_mode, build_revision: responseRuntime.build_revision, worker_version_id: responseRuntime.worker_version_id } };
 }
 const idleAI = { run: async () => ({ response: "{}" }) } as unknown as Env["AI"];
 function agentBinding(admitted = true): Fetcher { return { fetch: async () => Response.json({ version: "1", admitted }) } as unknown as Fetcher; }
@@ -61,8 +61,12 @@ describe("native app lifecycle", () => {
     expect(publication?.kind).toBe("published");
     expect(publication?.kind === "published" ? publication.answer.text : "").toBe("1 net_units");
     expect(test.state().publication?.lineage?.receipt_ids).toHaveLength(1);
+    expect(test.state().publication?.evidence?.context.results).toHaveLength(1);
+    expect(test.state().publication?.evidence?.execution.payload_sha256).toBeTruthy();
     const replay = await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }));
-    expect((await replay.json() as { publication: { lineage: { receipt_ids: string[] } } }).publication.lineage.receipt_ids).toHaveLength(1);
+    expect((await replay.json() as { publication: { lineage: { receipt_ids: string[] }; evidence: { context: { results: unknown[] } } } }).publication.evidence.context.results).toHaveLength(1);
+    const corrupted = test.state(); (test.agent as unknown as { state: BridgeState }).state = { ...corrupted, publication: { ...corrupted.publication!, evidence: { ...corrupted.publication!.evidence!, context: { ...corrupted.publication!.evidence!.context, results: [] } } } };
+    expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(503);
   });
   it("refuses publication when the executed receipt provenance differs", async () => {
     const build = "a".repeat(40); const worker = "22222222-2222-4222-8222-222222222222";
