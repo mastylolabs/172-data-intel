@@ -186,9 +186,9 @@ export function resetSession(state: SessionStateV2, now = new Date()): SessionSt
 
 export function beginJob(state: SessionStateV2, job: JobV2): SessionOutcome {
   const parsedJob = jobV2.parse(JSON.parse(JSON.stringify(jobV2.parse(job))));
-  const prior = state.request_journal.find((entry) => entry.request_id === job.request_id);
+  const prior = state.request_journal.find((entry) => entry.request_id === parsedJob.request_id);
   if (prior) {
-    return prior.input_sha256 === job.input_sha256
+    return prior.input_sha256 === parsedJob.input_sha256
       ? { kind: "replay", entry: prior }
       : { kind: "conflict", code: "request_conflict" };
   }
@@ -249,6 +249,10 @@ export function finishJob(
     ["cancelled", "completed", "failed", "interrupted", "budget_exhausted"].includes(active.phase)
   )
     throw new Error("stale_job");
+  const terminalPhases = ["completed", "awaiting_clarification", "failed", "interrupted", "cancelled", "budget_exhausted"];
+  if (!terminalPhases.includes(terminal.phase) || (active.phase === "cancel_requested" && terminal.phase !== "cancelled")) {
+    throw new Error("stale_job");
+  }
   const finished = { ...active, ...terminal };
   return parseSessionState({
     ...state,

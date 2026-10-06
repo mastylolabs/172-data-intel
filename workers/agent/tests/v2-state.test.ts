@@ -66,6 +66,9 @@ describe("v2 durable session state", () => {
       phase: "completed",
       error: null,
     })).toThrow("stale_job");
+    for (const phase of ["completed", "queued"] as const) {
+      expect(() => finishJob(cancelled, JOB_ID, 1, 2, { phase, error: null })).toThrow("stale_job");
+    }
     const cancelledTerminal = finishJob(cancelled, JOB_ID, 1, 2, {
       phase: "cancelled",
       error: null,
