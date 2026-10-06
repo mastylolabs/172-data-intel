@@ -85,7 +85,7 @@ const journalEntry = z.strictObject({
   job_id: uuid,
   terminal_code: z.string().max(64).nullable(),
   publication_id: uuid.nullable(),
-});
+}).refine((value) => bytes(value) <= 256);
 export const sessionStateV2 = z.strictObject({
   version: z.literal("2"),
   revision: z.number().int().nonnegative(),
@@ -146,7 +146,7 @@ export function parseSessionState(value: unknown): SessionStateV2 {
 }
 
 export function selectSource(state: SessionStateV2, source: SourceV2): SessionStateV2 {
-  const parsedSource = sourceV2.parse(JSON.parse(JSON.stringify(source)));
+  const parsedSource = sourceV2.parse(JSON.parse(JSON.stringify(sourceV2.parse(source))));
   const nextEpoch = state.cancel_epoch + 1;
   const fencedJob = state.active_job
     ? { ...state.active_job, phase: "cancelled" as const, cancel_epoch: nextEpoch }
@@ -185,7 +185,7 @@ export function resetSession(state: SessionStateV2, now = new Date()): SessionSt
 }
 
 export function beginJob(state: SessionStateV2, job: JobV2): SessionOutcome {
-  const parsedJob = jobV2.parse(JSON.parse(JSON.stringify(job)));
+  const parsedJob = jobV2.parse(JSON.parse(JSON.stringify(jobV2.parse(job))));
   const prior = state.request_journal.find((entry) => entry.request_id === job.request_id);
   if (prior) {
     return prior.input_sha256 === job.input_sha256
@@ -210,7 +210,7 @@ export function beginJob(state: SessionStateV2, job: JobV2): SessionOutcome {
 }
 
 export function storeJob(state: SessionStateV2, job: JobV2): SessionStateV2 {
-  const parsedJob = jobV2.parse(JSON.parse(JSON.stringify(job)));
+  const parsedJob = jobV2.parse(JSON.parse(JSON.stringify(jobV2.parse(job))));
   if (state.selected_source === null || sourceKey(parsedJob.source) !== sourceKey(state.selected_source)) {
     throw new Error("source_mismatch");
   }
@@ -242,9 +242,11 @@ export function finishJob(
   if (
     active === null ||
     active.job_id !== jobId ||
+    active.generation !== state.generation ||
     active.generation !== generation ||
     active.cancel_epoch !== cancelEpoch ||
-    state.cancel_epoch !== cancelEpoch
+    state.cancel_epoch !== cancelEpoch ||
+    ["cancelled", "completed", "failed", "interrupted", "budget_exhausted"].includes(active.phase)
   )
     throw new Error("stale_job");
   const finished = { ...active, ...terminal };
