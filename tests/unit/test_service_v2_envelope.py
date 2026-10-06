@@ -23,7 +23,14 @@ RUN_ID = UUID("d2ebca4d-b6ce-4c98-a9e0-d7fa8e6f9ba0")
 
 
 def _runtime(mode: Literal["local", "deployed"] = "local") -> RuntimeProvenanceV2:
-    return RuntimeProvenanceV2(python_version="3.12.7", sqlite_version="3.46.1", runtime_mode=mode)
+    return RuntimeProvenanceV2(
+        python_version="3.12.7",
+        sqlite_version="3.46.1",
+        runtime_mode=mode,
+        build_revision=None,
+        worker_version_id=None,
+        service_contract_revision="m4-service.v1",
+    )
 
 
 class SmallPayload(V2StrictModel):
@@ -37,6 +44,7 @@ def _envelope(
 ) -> ServiceEnvelopeV2[SmallPayload]:
     payload = SmallPayload(value="ok")
     return ServiceEnvelopeV2[SmallPayload](
+        version="2",
         payload=payload,
         payload_sha256=payload_sha256(payload),
         runtime=_runtime(),
@@ -79,8 +87,29 @@ def test_envelope_rejects_unknown_fields_and_oversize_payload() -> None:
     payload = LargePayload(value="x" * 17_000)
     with pytest.raises(ValidationError, match="result_limit"):
         ServiceEnvelopeV2[LargePayload](
-            payload=payload, payload_sha256=payload_sha256(payload), runtime=_runtime()
+            version="2",
+            job_id=None,
+            run_id=None,
+            receipt_id=None,
+            payload=payload,
+            payload_sha256=payload_sha256(payload),
+            runtime=_runtime(),
         )
+
+
+@pytest.mark.parametrize("field", ["version", "job_id", "run_id", "receipt_id", "runtime"])
+def test_envelope_rejects_omitted_wire_fields(field: str) -> None:
+    data = json.loads(_envelope().model_dump_json())
+    del data[field]
+    with pytest.raises(ValidationError, match="Field required"):
+        ServiceEnvelopeV2[SmallPayload].model_validate(data)
+
+
+def test_runtime_rejects_omitted_contract_revision() -> None:
+    data = _runtime().model_dump(mode="json")
+    del data["service_contract_revision"]
+    with pytest.raises(ValidationError, match="Field required"):
+        RuntimeProvenanceV2.model_validate(data)
 
 
 def test_runtime_provenance_requires_deployed_worker_metadata() -> None:
@@ -92,6 +121,7 @@ def test_runtime_provenance_requires_deployed_worker_metadata() -> None:
         runtime_mode="deployed",
         build_revision="ef8eac322f95580c5c717cdef2c9eabdf7f55ff2",
         worker_version_id=UUID("fe864d4b-909b-4016-8aa0-4d5cc2f499c0"),
+        service_contract_revision="m4-service.v1",
     )
     assert deployed.service_contract_revision == "m4-service.v1"
 
@@ -100,12 +130,15 @@ def test_surrogate_text_and_error_contract_are_safe() -> None:
     with pytest.raises(ValidationError, match="invalid_input"):
         SmallPayload(value="bad\ud800")
     error = ServiceErrorV2(
+        version="2",
         code="source_mismatch",
         stage="catalog",
         job_id=JOB_ID,
         run_id=RUN_ID,
         limit=ServiceLimitV2(name="max_result_bytes", maximum=16_384),
+        provider_reason=None,
+        automatic_retry=False,
     )
     assert error.automatic_retry is False
     with pytest.raises(ValidationError):
-        ServiceErrorV2(code="secret-provider-error", stage="transport")  # type: ignore[arg-type]
+        ServiceErrorV2.model_validate({"code": "secret-provider-error", "stage": "transport"})

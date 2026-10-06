@@ -55,9 +55,9 @@ class RuntimeProvenanceV2(V2StrictModel):
     python_version: str = Field(min_length=1, max_length=32)
     sqlite_version: str = Field(min_length=1, max_length=32)
     runtime_mode: RuntimeMode
-    build_revision: BuildRevision | None = None
-    worker_version_id: UUID | None = None
-    service_contract_revision: ServiceContractRevision = "m4-service.v1"
+    build_revision: BuildRevision | None
+    worker_version_id: UUID | None
+    service_contract_revision: ServiceContractRevision
 
     @model_validator(mode="after")
     def deployed_metadata_is_complete(self) -> "RuntimeProvenanceV2":
@@ -72,10 +72,10 @@ PayloadT = TypeVar("PayloadT", bound=BaseModel)
 
 
 class ServiceEnvelopeV2(V2StrictModel, Generic[PayloadT]):  # noqa: UP046
-    version: Literal["2"] = "2"
-    job_id: UUID | None = None
-    run_id: UUID | None = None
-    receipt_id: UUID | None = None
+    version: Literal["2"]
+    job_id: UUID | None
+    run_id: UUID | None
+    receipt_id: UUID | None
     payload: PayloadT
     payload_sha256: V2Digest
     runtime: RuntimeProvenanceV2
@@ -148,11 +148,11 @@ ProviderReasonV2 = Literal["quota", "timeout", "unavailable", "malformed"]
 
 
 class ServiceErrorV2(V2StrictModel):
-    version: Literal["2"] = "2"
+    version: Literal["2"]
     code: ServiceErrorCodeV2
     stage: ServiceStageV2
-    job_id: UUID | None = None
-    run_id: UUID | None = None
-    limit: ServiceLimitV2 | None = None
-    provider_reason: ProviderReasonV2 | None = None
-    automatic_retry: Literal[False] = False
+    job_id: UUID | None
+    run_id: UUID | None
+    limit: ServiceLimitV2 | None
+    provider_reason: ProviderReasonV2 | None
+    automatic_retry: Literal[False]
