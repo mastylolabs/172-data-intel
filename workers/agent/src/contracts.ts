@@ -139,6 +139,15 @@ export const sqlInput = z.strictObject({
   sql: text(8000),
   max_rows: z.number().int().min(1).max(20),
 });
+export const planInput = z.strictObject({
+  version: z.literal("1"),
+  request_id: z.uuid(),
+  question: text(2000),
+});
+export const planOutput = z.discriminatedUnion("status", [
+  z.strictObject({ status: z.literal("plan"), sql: text(8000), rationale: text(512) }),
+  z.strictObject({ status: z.literal("clarify"), question: text(2000) }),
+]);
 export const emptyInput = z.strictObject({ version: z.literal("1") });
 export const sourceInput = z.strictObject({
   version: z.literal("1"),
@@ -170,15 +179,22 @@ export const serviceError = z.strictObject({
     "invalid_result",
     "result_limit",
     "request_conflict",
+    "budget_exhausted",
+    "budget_unavailable",
     "runtime_incompatible",
     "python_unavailable",
     "unsupported_source",
     "source_mismatch",
+    "model_quota",
+    "model_output_invalid",
+    "model_unavailable",
   ]),
-  stage: z.enum(["input", "query", "transport"]),
+  stage: z.enum(["input", "planning", "query", "transport"]),
   job_id: z.uuid().nullable(),
   limit: z.null(),
-  provider_reason: z.null(),
+  provider_reason: z
+    .enum(["daily_free_allocation", "account_limited", "out_of_capacity", "unknown"])
+    .nullable(),
   automatic_retry: z.literal(false),
 });
 export async function sha256(value: string): Promise<string> {
