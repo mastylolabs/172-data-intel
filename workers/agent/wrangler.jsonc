@@ -9,6 +9,12 @@
   "vars": { "RUNTIME_MODE": "deployed" },
   "ai": { "binding": "AI" },
   "services": [{ "binding": "TOOLS", "service": "172x-data-intel-m2-tools" }],
-  "durable_objects": { "bindings": [{ "name": "ProofAgent", "class_name": "ProofAgent" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProofAgent"] }]
+  "durable_objects": { "bindings": [
+    { "name": "ProofAgent", "class_name": "ProofAgent" },
+    { "name": "ProofBudget", "class_name": "ProofBudget" }
+  ] },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ProofAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["ProofBudget"] }
+  ]
 }

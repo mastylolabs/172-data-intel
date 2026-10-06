@@ -14,7 +14,17 @@ vi.mock("agents", () => ({
     }
   },
 }));
-const { default: worker, ProofAgent, buildPlanRequest, runPlanModel } = await import("../src/index");
+vi.mock("cloudflare:workers", () => ({
+  DurableObject: class {
+    protected ctx: unknown;
+    protected env: unknown;
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
+}));
+const { default: worker, ProofAgent, ProofBudget, buildPlanRequest, runPlanModel } = await import("../src/index");
 type Env = import("../src/index").Env;
 const input = {
   version: "1",
@@ -30,6 +40,8 @@ function setup() {
   const aiRun = vi.fn().mockResolvedValue({
     response: JSON.stringify({ status: "plan", sql: "SELECT 1", rationale: "test plan" }),
   });
+  const budgetFetch = vi.fn().mockImplementation(async () => Response.json({ version: "1", admitted: true }));
+  const budgetId = {} as DurableObjectId;
   const lookup = vi.fn((name: string) => name as unknown as DurableObjectId);
   const env = {
     PROOF_TOKEN: "t".repeat(32),
@@ -38,12 +50,12 @@ function setup() {
     CF_VERSION_METADATA: { id: "23456789-1234-4234-8234-123456789abc" },
     TOOLS: { fetch: tools },
     AI: { run: aiRun },
-    ProofBudget: {},
+    ProofBudget: { idFromName: vi.fn(() => budgetId), get: vi.fn(() => ({ fetch: budgetFetch })) },
     ProofAgent: { idFromName: lookup, get: () => ({ fetch: (r: Request) => agent.onRequest(r) }) },
   } as unknown as Env;
   const agent = new ProofAgent({} as DurableObjectState, env);
   Object.assign(agent, { state: agent.initialState });
-  return { agent, env, tools, lookup, aiRun };
+  return { agent, env, tools, lookup, aiRun, budgetFetch };
 }
 function request(path: string, body?: unknown, extra: Record<string, string> = {}): Request {
   return new Request(`https://proof.example${path}`, {
@@ -168,6 +180,20 @@ describe("restricted native proof bridge", () => {
     expect(await capacity.json()).toMatchObject({ code: "model_unavailable", provider_reason: "out_of_capacity" });
     expect(aiRun).toHaveBeenCalledTimes(6);
   });
+  it("retains bounded request identity after a later plan", async () => {
+    const { env, agent, aiRun } = setup();
+    aiRun
+      .mockResolvedValueOnce({ response: JSON.stringify({ status: "plan", sql: "SELECT 1", rationale: "A" }) })
+      .mockResolvedValueOnce({ response: JSON.stringify({ status: "plan", sql: "SELECT 2", rationale: "B" }) });
+    const first = { version: "1", request_id: crypto.randomUUID(), question: "First?" };
+    const second = { version: "1", request_id: crypto.randomUUID(), question: "Second?" };
+    await worker.fetch(request("/proof/plan", first), env);
+    await worker.fetch(request("/proof/plan", second), env);
+    const replay = await worker.fetch(request("/proof/plan", first), env);
+    expect(await replay.json()).toMatchObject({ code: "request_outcome_unavailable" });
+    expect(agent.state.request_journal).toHaveLength(2);
+    expect(aiRun).toHaveBeenCalledTimes(2);
+  });
   it("times out a stalled model call without retrying", async () => {
     const { env, aiRun } = setup();
     aiRun.mockImplementationOnce(() => new Promise(() => {}));
@@ -179,6 +205,17 @@ describe("restricted native proof bridge", () => {
   it("refuses the durable per-session model budget before dispatch", async () => {
     const { env, agent, aiRun } = setup();
     agent.state.model_starts = Array.from({ length: 12 }, () => Date.now());
+    const response = await worker.fetch(
+      request("/proof/plan", { version: "1", request_id: crypto.randomUUID(), question: "Revenue?" }),
+      env,
+    );
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ code: "budget_exhausted", stage: "planning" });
+    expect(aiRun).not.toHaveBeenCalled();
+  });
+  it("refuses the global budget before dispatch", async () => {
+    const { env, aiRun, budgetFetch } = setup();
+    budgetFetch.mockResolvedValueOnce(Response.json({ version: "1", admitted: false }));
     const response = await worker.fetch(
       request("/proof/plan", { version: "1", request_id: crypto.randomUUID(), question: "Revenue?" }),
       env,
@@ -201,6 +238,38 @@ describe("restricted native proof bridge", () => {
     );
     expect(tools).not.toHaveBeenCalled();
   });
+  it("bootstraps pre-planner Durable Object state before reads", async () => {
+    const { env, agent } = setup();
+    Object.assign(agent, { state: { version: "1", revision: 3, selected_source: "sales", receipt: null, revoked: false } });
+    expect((await worker.fetch(request("/proof/state"), env)).status).toBe(200);
+    expect(agent.state.model_starts).toEqual([]);
+    expect(agent.state.request_journal).toEqual([]);
+    expect(agent.state.plan).toBeNull();
+  });
+  it("preserves an interrupted legacy request as unavailable", async () => {
+    const { env, agent, aiRun } = setup();
+    const requestId = crypto.randomUUID();
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("Revenue?"));
+    const questionHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    Object.assign(agent, {
+      state: {
+        version: "1",
+        revision: 3,
+        selected_source: "sales",
+        receipt: null,
+        plan: null,
+        plan_request_id: `${requestId}:${questionHash}`,
+        revoked: false,
+      },
+    });
+    const response = await worker.fetch(
+      request("/proof/plan", { version: "1", request_id: requestId, question: "Revenue?" }),
+      env,
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "request_outcome_unavailable" });
+    expect(aiRun).not.toHaveBeenCalled();
+  });
   it("bounds request bytes and rejects malformed JSON", async () => {
     const { env, tools } = setup();
     const r = request("/proof/sql", input);
@@ -219,7 +288,27 @@ describe("restricted native proof bridge", () => {
     expect((await worker.fetch(request("/proof/sql", input), missing.env)).status).toBe(503);
     expect((await worker.fetch(request("/proof/plan", { version: "1", request_id: crypto.randomUUID(), question: "Revenue?" }), missing.env)).status).toBe(503);
     const noBudget = setup();
-    delete noBudget.env.ProofBudget;
+    noBudget.budgetFetch.mockRejectedValueOnce(new Error("budget-down"));
     expect((await worker.fetch(request("/proof/plan", { version: "1", request_id: crypto.randomUUID(), question: "Revenue?" }), noBudget.env)).status).toBe(503);
+  });
+});
+describe("global model budget Durable Object", () => {
+  it("admits 24 calls and refuses the 25th without exposing state", async () => {
+    let stored: unknown;
+    const ctx = {
+      storage: {
+        get: vi.fn(async () => stored),
+        put: vi.fn(async (_key: string, value: unknown) => {
+          stored = value;
+        }),
+      },
+      blockConcurrencyWhile: async (callback: () => Promise<void>) => callback(),
+    } as unknown as DurableObjectState;
+    const budget = new ProofBudget(ctx, {} as Env);
+    for (let i = 0; i < 24; i += 1) {
+      expect(await (await budget.fetch(new Request("https://budget", { method: "POST", body: '{"version":"1"}' }))).json()).toMatchObject({ admitted: true });
+    }
+    expect(await (await budget.fetch(new Request("https://budget", { method: "POST", body: '{"version":"1"}' }))).json()).toMatchObject({ admitted: false });
+    expect((await budget.fetch(new Request("https://budget", { method: "POST", body: "{}" }))).status).toBe(400);
   });
 });
