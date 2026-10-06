@@ -1,5 +1,3 @@
-"""Exact numeric checks over preverified tool receipts and attested query scope."""
-
 import json
 import re
 from hashlib import sha256
@@ -123,13 +121,12 @@ class NumericalCheckReportV2(_Value):
 
 def _payload_digest(payload: QueryResultV2 | DataProfileV2, scope: ClaimScopeV2, rid: UUID) -> str:
     if isinstance(payload, QueryResultV2):
-        if payload.version != "2":
-            raise ValueError("unsupported_version")
         if rid != payload.receipt_id:
             raise ValueError("result_ref_mismatch")
         if scope.period is not None or scope.filters or scope.group is not None:
             raise ValueError("unsupported_scope")
-        _query_unit(payload)
+        if scope.unit != _query_unit(payload):
+            raise ValueError("unit_mismatch")
         return _digest(payload.model_dump(mode="json"))
     if scope.period is not None or scope.filters or scope.group is not None:
         raise ValueError("scope_mismatch")
@@ -235,8 +232,9 @@ def validate_numeric(
         _check_claim_shape(claim)
         if claim.scope != evidence.scope:
             raise ValueError("scope_mismatch")
-        if isinstance(evidence.payload, QueryResultV2) and claim.value.unit != _query_unit(
-            evidence.payload
+        if claim.scope.unit != claim.value.unit or (
+            isinstance(evidence.payload, QueryResultV2)
+            and claim.value.unit != _query_unit(evidence.payload)
         ):
             raise ValueError("unit_mismatch")
         if (claim.result_ref.receipt_id, claim.result_ref.payload_sha256) != (
