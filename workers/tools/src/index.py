@@ -16,6 +16,19 @@ from data_intel.worker_transport import BodyTooLarge, JsException, read_bounded_
 from workers import Response, WorkerEntrypoint  # type: ignore[attr-defined]
 
 
+def _metadata_id(metadata: object) -> str | None:
+    """Convert the Workers SDK metadata proxy into a validated string value."""
+    value = getattr(metadata, "id", None)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return str(value)
+    except (JsException, OSError, TypeError, ValueError):
+        return None
+
+
 # The Worker SDK is isolated to the Worker project; the root gate lacks its types.
 class Default(WorkerEntrypoint):  # type: ignore[misc]
     """Expose only three bounded service-binding operations."""
@@ -37,7 +50,7 @@ class Default(WorkerEntrypoint):  # type: ignore[misc]
             runtime = runtime_info_from_bindings(
                 runtime_mode=getattr(self.env, "RUNTIME_MODE", None),
                 build_revision=getattr(self.env, "BUILD_REVISION", None),
-                worker_version_id=getattr(metadata, "id", None),
+                worker_version_id=_metadata_id(metadata),
                 python_version=sys.version.split()[0],
                 sqlite_version=sqlite3.sqlite_version,
             )
@@ -67,7 +80,7 @@ class Default(WorkerEntrypoint):  # type: ignore[misc]
             runtime = runtime_provenance_v2_from_bindings(
                 runtime_mode=getattr(self.env, "RUNTIME_MODE", None),
                 build_revision=getattr(self.env, "BUILD_REVISION", None),
-                worker_version_id=getattr(metadata, "id", None),
+                worker_version_id=_metadata_id(metadata),
                 python_version=sys.version.split()[0],
                 sqlite_version=sqlite3.sqlite_version,
             )
