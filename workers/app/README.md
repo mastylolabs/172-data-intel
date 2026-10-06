@@ -30,4 +30,8 @@ empty `TOOLS_BUILD_REVISION` and `TOOLS_WORKER_VERSION_ID` vars with the exact
 private tools Worker build revision and version-metadata UUID; blank values fail
 closed. Workers AI planning, separate candidate and
 Validator calls, publication, and browser chat are the next application slice;
-this package does not deploy or enable paid billing.
+this package does not deploy or enable paid billing. The internal planner gateway
+uses only `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, with 12,288-byte input,
+8,192-byte output, one call, zero temperature and no automatic retry. Its local
+tests use a fake AI binding; public routes do not invoke it until the later Agent
+orchestration slice, and no live model check is claimed here.
