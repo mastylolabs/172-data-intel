@@ -121,7 +121,8 @@ class SearchReceiptV2(_SearchValue):
             raise ValueError("inconsistent source")
         if not self.scanned_count >= self.matched_count >= self.returned_count:
             raise ValueError("inconsistent search counts")
-        if self.returned_count != len(self.hits) or self.returned_count > self.request.max_hits:
+        expected_hits = min(self.matched_count, self.request.max_hits)
+        if self.returned_count != len(self.hits) or self.returned_count != expected_hits:
             raise ValueError("inconsistent hit count")
         if self.omitted_hit_count != self.matched_count - self.returned_count:
             raise ValueError("inconsistent omitted hits")

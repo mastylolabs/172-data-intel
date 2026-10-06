@@ -44,7 +44,7 @@ def _receipt(**changes: object) -> SearchReceiptV2:
     return SearchReceiptV2.model_validate(
         {
             "source": SUPPORT_SOURCE,
-            "request": _request(),
+            "request": _request(max_hits=1),
             "scanned_count": 16,
             "matched_count": 2,
             "returned_count": 1,
@@ -158,9 +158,7 @@ def test_requests_refuse_malformed_types_bounds_tokens_and_intervals(
         {"extra": "untrusted"},
     ],
 )
-def test_hit_shape_score_and_exact_cell_contracts_reject_mutations(
-    change: dict[str, object],
-) -> None:
+def test_hit_fields_tokens_and_scores_reject_mutations(change: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         _hit(**change)
 
@@ -177,6 +175,7 @@ def test_hit_shape_score_and_exact_cell_contracts_reject_mutations(
         {"scanned_count": 1},
         {"matched_count": 0},
         {"returned_count": 0},
+        {"returned_count": 0, "omitted_hit_count": 2, "hits": ()},
         {"returned_count": 6},
         {"omitted_hit_count": 0},
         {"analytical_validated": 0},
@@ -191,7 +190,12 @@ def test_hit_shape_score_and_exact_cell_contracts_reject_mutations(
             "omitted_hit_count": 0,
             "hits": (_hit(), _hit(message_id="M002")),
         },
-        {"returned_count": 2, "omitted_hit_count": 0, "hits": (_hit(), _hit())},
+        {
+            "request": _request(),
+            "returned_count": 2,
+            "omitted_hit_count": 0,
+            "hits": (_hit(), _hit()),
+        },
         {"hits": (_hit(matched_tokens=("login",)),)},
     ],
 )

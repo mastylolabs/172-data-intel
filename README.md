@@ -127,6 +127,8 @@ at 2,048 bytes per request and 8,192 per receipt; payload hashes cover that exac
 content. Models preserve quotes but do not authenticate them against loaded
 messages or execute retrieval. Ranking, filtering, deadlines and source-backed
 search remain P4b; citation validation and service exposure remain later slices.
+Receipts require exactly `min(matched_count, request.max_hits)` returned hits;
+available matches cannot silently become an empty result.
 
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
