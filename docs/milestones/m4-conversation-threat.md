@@ -11,13 +11,14 @@ The M2 `CTRL-06`/`CTRL-07` limits remain authoritative for all v1 proof paths:
 12,288-byte planner input, 8,192-byte output, one model plus one query per v1
 job, and the existing 12/hour session and 24/day global admissions. M4 adds a
 separate v2 Validator stage with a 32,768-byte input, 4,096-byte strict JSON
-output, and up to six stage calls/two tools per v2 job. This is a versioned
+output, and up to four stage calls/two tools per v2 job. This is a versioned
 scope amendment, not a quota increase: v2 consumes the same durable budget
 owner, cannot reset counters, and keeps no-stream/no-technical-retry behavior.
 The v2 stage map is fixed: Analyst 12,288-byte input/8,192-byte output,
 Semantic clarification 12,288/2,048, candidate 24,576/4,096, and Validator
 32,768/4,096; max tokens are 512, 256, 512 and 512 respectively. Analyst may
-have one bounded replan, Semantic is conditional once, and no stage retries.
+have no in-job replan, Semantic is conditional once, and no stage retries;
+Validator remediation is terminal and a corrected question gets a new job.
 Every stage consumes the shared model admission before dispatch.
 
 | Control | Required behavior and failure evidence | Traceability |

@@ -20,7 +20,7 @@ query job and existing 12/hour session plus 24/day global admissions still
 apply. This M4 contract adds a separately versioned v2 Validator context with
 the 32,768-byte cap above because it must carry complete bounded receipts and
 field meanings; it has its own 4,096-byte output cap, strict JSON verdict and
-the same no-stream/no-technical-retry rules. The v2 six-model/two-tool job
+the same no-stream/no-technical-retry rules. The v2 four-model/two-tool job
 ceiling is stage accounting under the existing session/hour and global/day
 ceilings, not a quota increase or a widening of v1. A v2 admission record
 must consume the existing `ProofBudget` owner, and mixed-version calls cannot
@@ -30,14 +30,16 @@ The canonical v2 model-stage policy is:
 
 | Stage | Context/request cap | Output cap / max tokens | Admission and retry |
 | --- | ---: | ---: | --- |
-| Analyst planning | 12,288 bytes | 8,192 bytes / 512 | one call; one optional bounded replan; same session/global counter |
+| Analyst planning | 12,288 bytes | 8,192 bytes / 512 | one call; no in-job replan; same session/global counter |
 | Conditional Semantic clarification | 12,288 bytes | 2,048 bytes / 256 | zero or one call only when meanings are unresolved; no retry |
 | Candidate drafting | 24,576 bytes | 4,096 bytes / 512 | one call; no retry; candidate remains private |
 | Independent Validator | 32,768 bytes | 4,096 bytes / 512 | one call; no retry; malformed/uncertain dispatch consumes admission |
 
 All rows use the same `ProofBudget` model admission and the 12/hour session and
-24/day global ceilings. A v2 job has at most six model calls (including one
-replan) and two tool calls; a stage that is not needed consumes no admission.
+24/day global ceilings. A v2 job has at most four model calls and two tool
+calls; a stage that is not needed consumes no admission. Validator remediation
+is terminal `needs_clarification` or `failed`; a corrected question creates a
+new request/job and receives a fresh plan, candidate and Validator pass.
 Max+1 request/output bodies refuse before dispatch, and SDK/provider retries
 are disabled. These caps are application bounds, not latency or quota claims.
 
@@ -441,7 +443,7 @@ call and does not alter the search receipt or quote.
 
 - `version:"2"`, `plan_id`, `job_id`, `plan_revision` and `plan_sha256`;
 - original question, selected full source identity, profile/capability refs and optional resolved semantic ref;
-- `mode:"query"|"search"|"clarify"`, an acyclic ordered step list (`profile`, `query`, `search`, `clarify`), expected input/output grain and units;
+- `mode:"profile"|"query"|"search"|"clarify"`, an acyclic ordered step list (`profile`, `query`, `search`, `clarify`), expected input/output grain and units. A profile-only question uses `mode:"profile"` with exactly one `profile` step; query/search plans may include a preceding profile step;
 - exact query/search request refs or a clarification payload; no model-supplied path, capability or authorization;
 - coverage (`complete_query_result` or `targeted_lexical_search`), required deterministic checks, context/evidence limits, stage budget and deadline;
 - `producer` (`analyst`), `prompt_revision`, and model/runtime provenance when a model produced it.
@@ -466,8 +468,9 @@ claims and citations are not copied into accepted history until publication pass
 `ValidatorInputV2` is constructed by the Agent from the immutable original question, resolved
 clarification, the complete bounded profile/field-meaning context (or the complete catalog meaning
 context for support), the complete actual query or search receipt, candidate, P5/P6 reports, source
-and runtime provenance, and requested-question coverage. A single job has one tool receipt: the
-worst-case byte calculation is profile/meanings 4,096 + query receipt 16,384 + candidate 4,096 +
+and runtime provenance, and requested-question coverage. A single job has one optional profile
+receipt/context plus one primary query or search receipt; the worst-case byte calculation is
+profile/meanings 4,096 + query receipt 16,384 + candidate 4,096 +
 plan/question/provenance 4,096 + checks/report dispositions 4,096 = 32,768 bytes. Search jobs
 use an 8,192-byte receipt and remain below that cap. The canonical input cap is therefore 32,768
 bytes with max+1 boundary tests; no rows, meanings or material evidence are silently dropped.
@@ -527,18 +530,18 @@ read/reconciliation operation; it never resubmits work.
 ```text
 job_id:UUID, request_id:UUID, input_sha256:64hex, source:SourceIdentity,
 plan_id/plan_sha256:nullable, generation:uint64, cancel_epoch:uint64,
-phase:queued|profiling|semantic|planning|executing|candidate|validating|replanning|
+phase:queued|profiling|semantic|planning|executing|candidate|validating|
       cancel_requested|completed|awaiting_clarification|failed|interrupted|cancelled|budget_exhausted,
 started_at, deadline_at, active_run_id:UUID|null, stage_runs:[StageRunV2] (max 8),
-model_calls:uint (max 6), query_calls:uint (max 2), candidate_id/report_id/publication_id nullable,
+model_calls:uint (max 4), query_calls:uint (max 2), candidate_id/report_id/publication_id nullable,
 error:ServiceErrorV2|null, clarification:ClarificationV2|null, accepted_answer_id:UUID|null
 ```
 
 Each `StageRunV2` has `run_id`, stage, attempt (always 1 for a technical attempt), input/output
-digests, start/finish times, runtime provenance and terminal status. A replan is a new plan revision
-and stage run under the same job, not a retry of a failed physical call. No technical/provider SDK
-retry is automatic. At most one analytical replan is allowed when the Validator returns a bounded
-remediation that does not require new source scope; otherwise the job becomes failed or clarification.
+digests, start/finish times, runtime provenance and terminal status. No technical/provider SDK retry
+or in-job replan is automatic or permitted. Validator remediation is recorded as bounded guidance
+on a terminal `needs_clarification`/`failed` job; a corrected question must use a new request/job,
+so every candidate always receives a fresh independent Validator call.
 
 For each new request, the DO atomically stores the queued job and input hash before any awaited
 call. The request journal retains the latest 32 `{request_id,input_sha256,job_id,outcome}` entries.
@@ -551,7 +554,7 @@ or cancel epoch and fences old work.
 A stage admission is reserved before dispatch and is never refunded after an uncertain timeout. MVP
 limits are: 12 model calls per session rolling hour, 24 model calls per UTC day globally, 30 accepted
 jobs per session rolling hour, 128 tool attempts per UTC day globally, 6 model calls and 2 tool calls
-per job, one active job per session, one optional replan, 30-second model wait, 10-second service
+per job, one active job per session, no in-job replan, 30-second model wait, 10-second service
 binding wait and 60-second job publication deadline. These are application safety limits; no reset
 or billing behavior is implied. The current P4b budget remains the global source of truth until a
 reviewed v2 budget record is merged; v2 must not create a second uncoordinated counter.
@@ -583,7 +586,7 @@ but clears owned v2 history according to the UX retention policy.
 | Flow | Normal path | Failure/overload | Detection | Safe/user-visible response | Recovery and owner | Evidence/unknown |
 | --- | --- | --- | --- | --- | --- | --- |
 | Source selection | Catalog → exact source tuple persisted | stale hash/capability missing | registry/hash check | `source_mismatch` or `capability_mismatch`; keep old selection | user selects listed identity; Python owner fixes catalog | v2 route unimplemented |
-| Sales answer | profile → Analyst query plan → Python query → candidate → P5 → Validator → publish | unsafe SQL, wrong result, model quota or malformed candidate | strict DTO, receipt/hash and stage checks | failure/clarification; no answer/history mutation | new user request or one bounded replan; Agent owner | live chain unknown |
+| Sales answer | profile → Analyst query plan → Python query → candidate → P5 → Validator → publish | unsafe SQL, wrong result, model quota or malformed candidate | strict DTO, receipt/hash and stage checks | failure/clarification; no answer/history mutation | new user request after remediation; Agent owner | live chain unknown |
 | Support example | catalog → Analyst search plan → Python targeted search → exact citations → P6 → Validator → publish | no hits, unsupported corpus claim, forged quote | receipt counts/limitations and exact substring check | targeted evidence or explicit limitation; no prevalence statement | narrower query/new request; Python/Agent owner | support profile capability may be absent |
 | Refresh/follow-up | GET reads DO and same-source accepted memory | expired/evicted or source changed | revision/retention reconciliation | explicit `evidence_unavailable`/clarification | user asks fresh bounded question | deployed restart unverified |
 | Duplicate/cancel | journal replay or generation fence | same UUID changed input, late callback | input hash/cancel epoch/active job | conflict/replay/cancelled; no rerun or stale publish | user supplies fresh UUID; Agent owner | fault injection pending |
