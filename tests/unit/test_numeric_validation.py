@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from data_intel.contracts import SqlIntent
+from data_intel.contracts import SourceIdentity, SqlIntent
 from data_intel.query_engine import SQLiteQueryEngine
 from data_intel.sales_demo import DEMO_SOURCE
 from data_intel.sales_fixture import SALES_SOURCE
@@ -36,21 +36,23 @@ def _hash(value: object) -> str:
     return sha256(content.encode()).hexdigest()
 
 
-def _query(sql: str, unit: str = "count") -> NumericEvidenceV2:
+def _query(
+    sql: str, unit: str = "count", source: SourceIdentity = SALES_SOURCE, group: str | None = None
+) -> NumericEvidenceV2:
     request = QueryServiceRequest(
         version="1",
         job_id=ID,
-        intent=SqlIntent(version="1", source=SALES_SOURCE, question="Count?", sql=sql, max_rows=20),
+        intent=SqlIntent(version="1", source=source, question="Count?", sql=sql, max_rows=20),
     )
     runtime = runtime_info_from_bindings("local", None, None, "3.12", "3.46")
-    original = adapt_query(request, SQLiteQueryEngine(), runtime)
+    original = adapt_query(request, SQLiteQueryEngine(allow_demo_source=True), runtime)
     payload = original.model_dump(mode="json") | {"version": "2"}
     receipt = QueryResultV2.model_validate_json(json.dumps(payload))
     return NumericEvidenceV2(
         receipt_id=receipt.receipt_id,
         payload=receipt,
         payload_sha256=_hash(receipt.model_dump(mode="json")),
-        scope=ClaimScopeV2(source=SALES_SOURCE, unit=unit),
+        scope=ClaimScopeV2(source=source, unit=unit, group=group),
     )
 
 
@@ -100,7 +102,7 @@ def test_exact_query_profile_and_mutations() -> None:
     assert validate_numeric(profile_claim, profile_evidence).overall == "pass"
 
 
-def test_arithmetic_non_exact_and_unsupported_rank() -> None:
+def test_arithmetic_and_mismatched_rank_kind_refuse() -> None:
     evidence = _query("SELECT units AS n FROM main.sales", "net_units")
     assert isinstance(evidence.payload, QueryResultV2)
     values = [int(row[0].value) for row in evidence.payload.rows if row[0].type == "integer"]
@@ -117,6 +119,57 @@ def test_arithmetic_non_exact_and_unsupported_rank() -> None:
     assert validate_numeric(sum_claim, evidence).overall == "pass"
     rank = base.model_copy(update={"claim_type": "ranking"})
     assert validate_numeric(rank, evidence).overall == "unsupported"
+
+
+def test_difference_checks_exact_inputs_formula_and_unit() -> None:
+    evidence = _query("SELECT units AS n FROM main.sales", "net_units")
+    base = _claim(evidence, "-1")
+    ref = base.result_ref.model_copy(update={"row_index": None})
+    calc = CalculationV2(kind="difference", inputs=("n[0]", "n[1]"), formula="n[0]-n[1]")
+    claim = base.model_copy(
+        update={"claim_type": "comparison", "result_ref": ref, "calculation": calc}
+    )
+    assert validate_numeric(claim, evidence).overall == "pass"
+    for bad in (
+        calc.model_copy(update={"formula": "n[1]-n[0]"}),
+        calc.model_copy(update={"inputs": ("n[0]", "n[99]")}),
+        calc.model_copy(update={"formula": "n[0]/n[1]"}),
+    ):
+        assert (
+            validate_numeric(claim.model_copy(update={"calculation": bad}), evidence).overall
+            == "unsupported"
+        )
+    wrong = claim.model_copy(update={"value": claim.value.model_copy(update={"unit": "USD_cents"})})
+    assert validate_numeric(wrong, evidence).checks[0].code == "unit_mismatch"
+
+
+def test_ranking_recomputes_complete_group_order_and_ties() -> None:
+    sql = (
+        "SELECT customer, sum(revenue_cents) AS revenue_cents FROM main.sales "
+        "GROUP BY customer ORDER BY revenue_cents DESC, customer ASC"
+    )
+    evidence = _query(sql, "USD_cents", DEMO_SOURCE, "Elm")
+    assert isinstance(evidence.payload, QueryResultV2)
+    assert [row[0].value for row in evidence.payload.rows][-2:] == ["Elm", "Fjord"]
+    base = _claim(evidence, "5", "revenue_cents", 4)
+    ref = base.result_ref.model_copy(update={"cell_path": "rank"})
+    calc = CalculationV2(
+        kind="rank", inputs=("customer", "revenue_cents"), formula="rank(customer,revenue_cents)"
+    )
+    claim = base.model_copy(
+        update={"claim_type": "ranking", "result_ref": ref, "calculation": calc}
+    )
+    assert validate_numeric(claim, evidence).overall == "pass"
+    wrong_ref = ref.model_copy(update={"row_index": 5})
+    assert (
+        validate_numeric(claim.model_copy(update={"result_ref": wrong_ref}), evidence)
+        .checks[0]
+        .code
+        == "rank_mismatch"
+    )
+    wrong_sql = sql.replace(", customer ASC", "")
+    with pytest.raises(ValidationError, match="unsupported_scope"):
+        _query(wrong_sql, "USD_cents", DEMO_SOURCE, "Elm")
 
 
 def test_unverified_receipt_scope_and_id_refuse() -> None:
