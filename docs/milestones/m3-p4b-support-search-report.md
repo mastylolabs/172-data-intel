@@ -15,7 +15,7 @@ M3-P4b is complete and merged in [PR #37](https://github.com/mastylolabs/172-dat
 
 ## Problems and limits
 
-The first review found that Pydantic serialization warnings leaked raw copied query/max-hit values before safe rejection. The corrected boundary uses warning-free revalidation and has explicit zero-warning/no-I/O regressions. Search remains private and local; v2 service exposure, citation validation, native Agent/UI integration, live model calls and deployed behavior are unverified.
+The first review found that Pydantic serialization warnings leaked raw copied query/max-hit values before safe rejection. The corrected boundary uses warning-free revalidation and has explicit zero-warning/no-I/O regressions. Search remains private and local; v2 service exposure, citation validation, native Agent/UI integration and live model calls are unverified. Integration tests for the private v2 service were not run because that service is a later milestone; deployed P4b search was not run because this change has no deployment route, so deployed behavior remains unverified rather than passed.
 
 ## Hardest technical problem
 
@@ -23,4 +23,4 @@ The hardest part was keeping targeted retrieval evidence trustworthy when both r
 
 ## Next milestone
 
-Proceed with the private v2 Python service boundary for catalog/profile/query/search envelopes, preserving v1 proof behavior and adding strict job IDs, runtime provenance, payload hashes, streamed body/result limits and safe v2 errors. This remains a separate reviewed milestone before native Agent coordination and web chat. The user’s existing full-go authorization covers continuation with the same independent QA, review, provider and guarded-merge gates.
+Proceed with the private v2 Python service boundary for catalog/profile/query/search envelopes, preserving v1 proof behavior and adding strict job IDs, runtime provenance, payload hashes, streamed body/result limits and safe v2 errors. This remains a separate reviewed milestone before native Agent coordination and web chat. The current assignment already includes the user’s full-go direction to continue all milestones; this report records v2 as the proposed next capability and continuation will retain the same independent QA, review, provider and guarded-merge gates.
