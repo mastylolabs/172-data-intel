@@ -1,7 +1,7 @@
 """Exact numeric checks over preverified tool receipts and attested query scope."""
 
 import json
-from datetime import date
+import re
 from hashlib import sha256
 from typing import Annotated, Literal, Self
 from uuid import UUID
@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from data_intel.contracts import SourceIdentity
 from data_intel.profile_models import DataProfileV2, canonical_profile_json
+from data_intel.sales_demo import DEMO_SOURCE
+from data_intel.sales_fixture import SALES_SOURCE
 from data_intel.service_contracts import QueryResult
 
 Digest = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$", strict=True)]
@@ -27,15 +29,13 @@ class ValidationBoundaryError(ValueError):
     """Safe batch refusal."""
 
 
-class PeriodV2(_Value):
-    start: date
-    end: date
-    timezone: Literal["UTC"] = "UTC"
+class QueryResultV2(QueryResult):
+    version: Literal["2"]  # type: ignore[assignment]  # Deliberate wire-version override.
 
 
 class ClaimScopeV2(_Value):
     source: SourceIdentity
-    period: PeriodV2 | None = None
+    period: dict[str, str] | None = None
     filters: tuple[tuple[str, str], ...] = ()
     group: str | None = None
     unit: Short
@@ -79,7 +79,7 @@ class NumericalClaimV2(_Value):
 
 class NumericEvidenceV2(_Value):
     receipt_id: UUID
-    payload: QueryResult | DataProfileV2
+    payload: QueryResultV2 | DataProfileV2
     payload_sha256: Digest
     scope: ClaimScopeV2
 
@@ -87,7 +87,15 @@ class NumericEvidenceV2(_Value):
     def verify_payload(self) -> Self:
         if self.payload.source != self.scope.source:
             raise ValueError("source_mismatch")
-        if isinstance(self.payload, QueryResult):
+        if isinstance(self.payload, QueryResultV2):
+            if self.payload.version != "2":
+                raise ValueError("unsupported_version")
+            if self.receipt_id != self.payload.receipt_id:
+                raise ValueError("result_ref_mismatch")
+            if any((self.scope.period, self.scope.filters, self.scope.group)):
+                raise ValueError("unsupported_scope")
+            if self.scope.unit != _query_unit(self.payload):
+                raise ValueError("unit_mismatch")
             digest = _digest(self.payload.model_dump(mode="json"))
         else:
             digest = sha256(canonical_profile_json(self.payload)).hexdigest()
@@ -128,11 +136,26 @@ def _digest(value: object) -> str:
     return sha256(_bytes(value)).hexdigest()
 
 
-def _report_hash(report: NumericalCheckReportV2) -> str:
-    return _digest(report.model_dump(mode="json", exclude={"report_sha256"}))
+def _query_unit(payload: QueryResultV2) -> str:
+    if (
+        payload.source not in (SALES_SOURCE, DEMO_SOURCE)
+        or payload.schema_revision != payload.source.meaning_revision
+    ):
+        raise ValueError("unsupported_scope")
+    match = re.fullmatch(
+        r"SELECT (count\(\*\)|units|revenue_cents) AS ([A-Za-z_][A-Za-z0-9_]*)"
+        r" FROM main\.sales",
+        payload.actual_sql,
+        re.I,
+    )
+    if match is None or payload.columns != [match.group(2)]:
+        raise ValueError("unsupported_scope")
+    return {"count(*)": "count", "units": "net_units", "revenue_cents": "USD_cents"}[
+        match.group(1).lower()
+    ]
 
 
-def _cell(payload: QueryResult, column: str, index: int) -> int:
+def _cell(payload: QueryResultV2, column: str, index: int) -> int:
     if column not in payload.columns or index >= len(payload.rows):
         raise ValueError("result_ref_mismatch")
     cell = payload.rows[index][payload.columns.index(column)]
@@ -153,7 +176,7 @@ def _profile_value(claim: NumericalClaimV2, payload: DataProfileV2) -> int:
     return int(measure.sum)
 
 
-def _direct_value(claim: NumericalClaimV2, payload: QueryResult) -> int:
+def _direct_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
     ref, calc = claim.result_ref, claim.calculation
     index = ref.row_index
     if (
@@ -166,23 +189,7 @@ def _direct_value(claim: NumericalClaimV2, payload: QueryResult) -> int:
     return _cell(payload, ref.column, index)
 
 
-def _difference_value(claim: NumericalClaimV2, payload: QueryResult) -> int:
-    ref, calc = claim.result_ref, claim.calculation
-    tokens = tuple(f"{ref.column}[{i}]" for i in range(len(payload.rows)))
-    if (
-        ref.row_index is not None
-        or ref.cell_path != "cell"
-        or len(calc.inputs) != 2
-        or calc.formula != "-".join(calc.inputs)
-        or any(t not in tokens for t in calc.inputs)
-    ):
-        raise ValueError("unsupported_formula")
-    return _cell(payload, ref.column, tokens.index(calc.inputs[0])) - _cell(
-        payload, ref.column, tokens.index(calc.inputs[1])
-    )
-
-
-def _query_value(claim: NumericalClaimV2, payload: QueryResult) -> int:
+def _query_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
     ref, calc = claim.result_ref, claim.calculation
     if calc.kind == "direct_cell":
         return _direct_value(claim, payload)
@@ -195,15 +202,13 @@ def _query_value(claim: NumericalClaimV2, payload: QueryResult) -> int:
         ):
             raise ValueError("unsupported_formula")
         return sum(_cell(payload, ref.column, i) for i in range(len(payload.rows)))
-    if calc.kind == "difference":
-        return _difference_value(claim, payload)
     raise ValueError("unsupported_formula")
 
 
-def _numeric_value(claim: NumericalClaimV2, evidence: NumericEvidenceV2) -> int:
-    if isinstance(evidence.payload, DataProfileV2):
-        return _profile_value(claim, evidence.payload)
-    return _query_value(claim, evidence.payload)
+def _check_claim_shape(claim: NumericalClaimV2) -> None:
+    allowed = {"scalar": ("direct_cell", "sum"), "count": ("direct_cell",), "sum": ("sum",)}
+    if claim.calculation.kind not in allowed.get(claim.claim_type, ()):
+        raise ValueError("unsupported_formula")
 
 
 def validate_numeric(
@@ -214,6 +219,7 @@ def validate_numeric(
         {"claim": claim.model_dump(mode="json"), "evidence": evidence.model_dump(mode="json")}
     )
     try:
+        _check_claim_shape(claim)
         if claim.scope != evidence.scope:
             raise ValueError("scope_mismatch")
         if claim.unit != claim.scope.unit:
@@ -223,7 +229,12 @@ def validate_numeric(
             evidence.payload_sha256,
         ):
             raise ValueError("result_ref_mismatch")
-        if _numeric_value(claim, evidence) != int(claim.value):
+        value = (
+            _profile_value(claim, evidence.payload)
+            if isinstance(evidence.payload, DataProfileV2)
+            else _query_value(claim, evidence.payload)
+        )
+        if value != int(claim.value):
             raise ValueError("value_mismatch")
         status: Status = "pass"
         code = "exact_match"
@@ -238,7 +249,8 @@ def validate_numeric(
         input_sha256=input_hash,
         report_sha256="0" * 64,
     )
-    return report.model_copy(update={"report_sha256": _report_hash(report)})
+    report_hash = _digest(report.model_dump(mode="json", exclude={"report_sha256"}))
+    return report.model_copy(update={"report_sha256": report_hash})
 
 
 def validate_numeric_batch(

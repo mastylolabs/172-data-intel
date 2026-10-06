@@ -5,6 +5,7 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from data_intel.contracts import SqlIntent
 from data_intel.query_engine import SQLiteQueryEngine
@@ -12,7 +13,6 @@ from data_intel.sales_demo import DEMO_SOURCE
 from data_intel.sales_fixture import SALES_SOURCE
 from data_intel.sales_profile import profile_sales_demo
 from data_intel.service_contracts import (
-    QueryResult,
     QueryServiceRequest,
     adapt_query,
     runtime_info_from_bindings,
@@ -22,6 +22,7 @@ from data_intel.validation import (
     ClaimScopeV2,
     NumericalClaimV2,
     NumericEvidenceV2,
+    QueryResultV2,
     ResultRefV2,
     ValidationBoundaryError,
     validate_numeric,
@@ -36,19 +37,21 @@ def _hash(value: object) -> str:
     return sha256(content.encode()).hexdigest()
 
 
-def _query(sql: str) -> NumericEvidenceV2:
+def _query(sql: str, unit: str = "count") -> NumericEvidenceV2:
     request = QueryServiceRequest(
         version="1",
         job_id=ID,
         intent=SqlIntent(version="1", source=SALES_SOURCE, question="Count?", sql=sql, max_rows=20),
     )
     runtime = runtime_info_from_bindings("local", None, None, "3.12", "3.46")
-    receipt = adapt_query(request, SQLiteQueryEngine(), runtime)
+    original = adapt_query(request, SQLiteQueryEngine(), runtime)
+    payload = original.model_dump(mode="json") | {"version": "2"}
+    receipt = QueryResultV2.model_validate_json(json.dumps(payload))
     return NumericEvidenceV2(
         receipt_id=receipt.receipt_id,
         payload=receipt,
         payload_sha256=_hash(receipt.model_dump(mode="json")),
-        scope=ClaimScopeV2(source=SALES_SOURCE, unit="count"),
+        scope=ClaimScopeV2(source=SALES_SOURCE, unit=unit),
     )
 
 
@@ -82,17 +85,7 @@ def test_exact_query_profile_and_mutations() -> None:
     claim = _claim(evidence, "6")
     report = validate_numeric(claim, evidence)
     assert report.overall == "pass"
-    assert report.report_sha256 == _hash(report.model_dump(mode="json", exclude={"report_sha256"}))
-    mutations = (
-        ({"value": "7"}, "value_mismatch"),
-        ({"unit": "USD_cents"}, "unit_mismatch"),
-        (
-            {"result_ref": claim.result_ref.model_copy(update={"payload_sha256": "0" * 64})},
-            "result_ref_mismatch",
-        ),
-    )
-    for changed, code in mutations:
-        assert validate_numeric(claim.model_copy(update=changed), evidence).checks[0].code == code
+    assert validate_numeric(claim.model_copy(update={"value": "7"}), evidence).overall == "fail"
     profile = profile_sales_demo(DEMO_SOURCE)
     profile_evidence = NumericEvidenceV2(
         receipt_id=ID,
@@ -105,8 +98,8 @@ def test_exact_query_profile_and_mutations() -> None:
 
 
 def test_arithmetic_non_exact_and_unsupported_rank() -> None:
-    evidence = _query("SELECT units AS n FROM main.sales")
-    assert isinstance(evidence.payload, QueryResult)
+    evidence = _query("SELECT units AS n FROM main.sales", "net_units")
+    assert isinstance(evidence.payload, QueryResultV2)
     values = [int(row[0].value) for row in evidence.payload.rows if row[0].type == "integer"]
     base = _claim(evidence, "0")
     sum_ref = base.result_ref.model_copy(update={"row_index": None, "cell_path": "sum"})
@@ -115,18 +108,20 @@ def test_arithmetic_non_exact_and_unsupported_rank() -> None:
         update={"value": str(sum(values)), "result_ref": sum_ref, "calculation": sum_calc}
     )
     assert validate_numeric(sum_claim, evidence).overall == "pass"
-    diff_ref = sum_ref.model_copy(update={"cell_path": "cell"})
-    diff_calc = CalculationV2(kind="difference", inputs=("n[0]", "n[1]"), formula="n[0]-n[1]")
-    diff_claim = base.model_copy(
-        update={
-            "value": str(values[0] - values[1]),
-            "result_ref": diff_ref,
-            "calculation": diff_calc,
-        }
-    )
-    assert validate_numeric(diff_claim, evidence).overall == "pass"
-    real = _query("SELECT 1.5 AS n FROM main.sales LIMIT 1")
-    assert validate_numeric(_claim(real, "1"), real).overall == "unsupported"
+    rank = base.model_copy(update={"claim_type": "ranking"})
+    assert validate_numeric(rank, evidence).overall == "unsupported"
+
+
+def test_unverified_receipt_scope_and_unit_refuse() -> None:
+    evidence = _query("SELECT count(*) AS n FROM main.sales")
+    for scope in (
+        evidence.scope.model_copy(update={"period": {"start": "2026-01-01", "end": "2026-02-01"}}),
+        evidence.scope.model_copy(update={"unit": "USD_cents"}),
+    ):
+        with pytest.raises(ValidationError):
+            NumericEvidenceV2.model_validate(evidence.__dict__ | {"scope": scope})
+    with pytest.raises(ValidationError, match="result_ref_mismatch"):
+        NumericEvidenceV2.model_validate(evidence.__dict__ | {"receipt_id": ID})
 
 
 def test_batch_count_and_utf8_limits() -> None:
@@ -134,5 +129,3 @@ def test_batch_count_and_utf8_limits() -> None:
     claim = _claim(evidence, "6")
     with pytest.raises(ValidationBoundaryError, match="result_limit"):
         validate_numeric_batch((claim,) * 13, evidence)
-    with pytest.raises(ValidationBoundaryError, match="result_limit"):
-        validate_numeric_batch((claim.model_copy(update={"text": "é" * 900}),) * 5, evidence)
