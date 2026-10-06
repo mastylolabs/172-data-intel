@@ -108,6 +108,15 @@ _CAVEAT = re.compile(
     r"(?:prevalence|trends?|absence|whole.corpus|entire corpus)\b",
     re.I,
 )
+_TARGETED = re.compile(
+    r"(?:one|a|the|this|another) returned (?:message|example|hit)"
+    r"(?: (?:mentions?|contains?|describes?|reports?|says?|shows?|includes?) [^.;!?\n]+)?"
+    r"[.!?]?|"
+    r"this example (?:cannot|can't|does not|do not) "
+    r"(?:establish|prove|show|measure|infer) "
+    r"(?:prevalence|trends?|absence|whole.corpus|entire corpus)[.!?]?",
+    re.I,
+)
 
 
 def _canonical(value: object) -> bytes:
@@ -147,7 +156,7 @@ def _check(citation: CitationV2, evidence: CitationEvidenceV2, assertion: str) -
         raise ValueError("quote_hash_mismatch")
     if citation.quote not in returned_quote:
         raise ValueError("quote_mismatch")
-    if _COVERAGE.search(_CAVEAT.sub("", assertion)):
+    if _COVERAGE.search(_CAVEAT.sub("", assertion)) or not _TARGETED.fullmatch(assertion):
         raise ValueError("unsupported_coverage")
     return "exact_quote"
 
@@ -157,7 +166,8 @@ def validate_citation(
 ) -> CitationCheckReportV2:
     """Validate an assertion supplied by a caller who binds it to citation.claim_id.
 
-    The frozen citation DTO carries the claim ID but no assertion text.
+    Only explicit returned-message/example assertions pass. The frozen citation
+    DTO carries the claim ID but no assertion text; the caller binds the two.
     """
     if not isinstance(assertion, str):
         raise CitationBoundaryError("invalid_input")

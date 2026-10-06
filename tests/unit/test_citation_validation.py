@@ -59,7 +59,7 @@ def test_exact_substring_and_report_hash_bind_complete_receipt() -> None:
     assert report.policy_revision == "m4-citation.v1"
     assert (
         report.input_sha256
-        != validate_citation(citation, evidence, "Another example.").input_sha256
+        != validate_citation(citation, evidence, "Another returned example.").input_sha256
     )
 
 
@@ -138,6 +138,15 @@ def test_quote_bytes_case_and_whitespace_are_exact() -> None:
         "Export complaints appeared month after month.",
         "Export complaints appeared week after week.",
         "Export complaints appeared year after year.",
+        "Export complaints doubled this month.",
+        "Export problems became more frequent this month.",
+        "Not a single ticket mentions exports.",
+        "Every user complained about exports.",
+        "Most of the customers reported export problems.",
+        "Export problems became more common over time.",
+        "The export issue occurred in every ticket.",
+        "One returned message mentions exports. Export complaints doubled.",
+        "One returned message proves complaints doubled.",
     ],
 )
 def test_targeted_quote_cannot_prove_corpus_claims(assertion: str) -> None:
