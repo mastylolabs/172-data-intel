@@ -91,7 +91,7 @@ def test_dimension_and_measure_facts_match_independent_whole_fixture_oracles() -
         "distributions",
         "uncomputed_statistics",
     )
-    assert profile.capabilities == () and profile.analytical_validated is False
+    assert profile.capabilities == ("query",) and profile.analytical_validated is False
     assert "USD cents" in profile.fields[6].meaning
 
 

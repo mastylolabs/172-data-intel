@@ -7,9 +7,11 @@ from dataclasses import dataclass
 
 from data_intel._sqlite_policy import PolicyFailure, _PolicyEvidence, install_sqlite_policy
 from data_intel.contracts import SourceIdentity
+from data_intel.sales_demo import DEMO_SOURCE, load_sales_demo
 from data_intel.sales_fixture import (
     FieldMeaning,
     SaleRow,
+    SalesFixture,
     SalesProfile,
     load_sales_fixture,
 )
@@ -52,10 +54,25 @@ def _populate_sales(connection: sqlite3.Connection, rows: tuple[SaleRow, ...]) -
     connection.commit()
 
 
+def _verified_sales_fixture(expected_source: SourceIdentity) -> SalesFixture:
+    """Select a complete server-owned identity before either loader reads its path."""
+    if expected_source != DEMO_SOURCE:
+        return load_sales_fixture(expected_source)
+    demo = load_sales_demo(expected_source)
+    dates = tuple(row.sale_date for row in demo.rows)
+    return SalesFixture(
+        source=demo.source,
+        rows=demo.rows,
+        fields=demo.fields,
+        schema_revision=demo.schema_revision,
+        profile=SalesProfile(record_count=len(demo.rows), date_min=min(dates), date_max=max(dates)),
+    )
+
+
 @contextmanager
 def _sales_context(expected_source: SourceIdentity) -> Iterator[_SalesContext]:
     """Load only the verified sales fixture, install policy, then always close."""
-    fixture = load_sales_fixture(expected_source)
+    fixture = _verified_sales_fixture(expected_source)
     try:
         connection = sqlite3.connect(":memory:")
     except (MemoryError, sqlite3.Error):

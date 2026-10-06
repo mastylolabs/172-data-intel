@@ -103,6 +103,7 @@ def _profile(fixture: SalesDemo, deadline: float | None = None) -> DataProfileV2
     profile = DataProfileV2(
         source=fixture.source,
         schema_revision=fixture.schema_revision,
+        capabilities=("query",),
         fields=tuple(
             ProfileField(
                 name=field.name, sql_type=field.sql_type, meaning=field.meaning, null_count=0

@@ -14,6 +14,7 @@ from data_intel._bounded_result import (
 from data_intel._sales_context import _sales_context, _SalesContext
 from data_intel._sqlite_policy import PolicyFailure
 from data_intel.contracts import SourceIdentity, SqlIntent
+from data_intel.sales_demo import DEMO_SOURCE
 from data_intel.sales_fixture import SALES_SOURCE, FixtureError
 
 QueryErrorCode = Literal[
@@ -133,8 +134,15 @@ def _execute_in_context(
 class SQLiteQueryEngine:
     """Run one intent per fresh, verified, policy-controlled SQLite context."""
 
+    def __init__(self, *, allow_demo_source: bool = False) -> None:
+        if type(allow_demo_source) is not bool:
+            raise QueryFailure("invalid_input")
+        self._allow_demo_source = allow_demo_source
+
     def execute(self, intent: SqlIntent) -> QueryExecutionResult:
         encoded_sql = _sql_bytes(intent)
+        if intent.source == DEMO_SOURCE and not self._allow_demo_source:
+            raise QueryFailure("unsupported_source")
         try:
             with _sales_context(intent.source) as context:
                 result = _execute_in_context(intent, context, encoded_sql)
