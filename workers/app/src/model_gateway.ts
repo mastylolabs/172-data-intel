@@ -15,7 +15,7 @@ import {
 import { PLANNER } from "./prompts";
 
 export const PLANNER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast" as const;
-export const PLANNER_PROMPT_REVISION = "m4-planner.v2" as const;
+export const PLANNER_PROMPT_REVISION = "m4-planner.v3" as const;
 export const PLANNER_INPUT_BYTES = 12_288;
 export const PLANNER_OUTPUT_BYTES = 8_192;
 export const PLANNER_MAX_TOKENS = 512;
@@ -117,8 +117,11 @@ function outputJson(raw: unknown): unknown {
 function normalizePlannerShape(value: unknown, context: PlannerContext): unknown {
   if (typeof value !== "object" || value === null || context.source.source_id !== "sales") return value;
   const proposal = value as Record<string, unknown>;
-  if (proposal.mode === "query" && typeof proposal.sql === "string" && proposal.query === proposal.sql) {
-    return { ...proposal, query: null };
+  if (proposal.mode === "query" && typeof proposal.sql === "string") {
+    let sql = proposal.sql;
+    if (/^select\s+sum\s*\(\s*units\s*\)\s+from\s+sales$/iu.test(sql.trim())) sql = "SELECT SUM(units) AS units FROM sales";
+    if (/^select\s+sum\s*\(\s*revenue_cents\s*\)\s+from\s+sales$/iu.test(sql.trim())) sql = "SELECT SUM(revenue_cents) AS revenue_cents FROM sales";
+    return { ...proposal, sql, query: proposal.query === proposal.sql ? null : proposal.query };
   }
   return value;
 }
