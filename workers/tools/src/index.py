@@ -80,7 +80,11 @@ class Default(WorkerEntrypoint):  # type: ignore[misc]
                 "/v2/search": 2_048,
             }
             try:
-                payload = await read_bounded_body(request, limits.get(path, 0))
+                payload = (
+                    await read_bounded_body(request, limits.get(path, 0))
+                    if method == "POST"
+                    else b""
+                )
                 status, body = handle_service_v2(method, path, payload, runtime)
             except BodyTooLarge:
                 status, body = error_response_v2("result_limit", "input")
