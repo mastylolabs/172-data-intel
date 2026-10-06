@@ -200,8 +200,9 @@ describe("native app lifecycle", () => {
     const response = await publicFetch(new Request("https://app.test/"), env({} as Fetcher));
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
-    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
-    expect(await response.text()).toContain("172X Data Intelligence");
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'unsafe-inline'");
+    expect(response.headers.get("content-security-policy")).toContain("connect-src 'self'");
+    expect(await response.text()).toContain("Inspect evidence");
   });
   it("fails safely for corrupt durable state", async () => {
     const test = harness(tools().fetcher, { ...state(), session: null as unknown as BridgeState["session"] });

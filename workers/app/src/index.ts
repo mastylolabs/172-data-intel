@@ -475,7 +475,7 @@ async function sessionName(request: Request): Promise<{ token: string; name: str
   return { token, name: Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""), isNew: existing === undefined };
 }
 function headers(response: Response): Response {
-  const result = new Response(response.body, response); result.headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'"); return result;
+  const result = new Response(response.body, response); result.headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"); return result;
 }
 export async function publicFetch(request: Request, env: Env, resolve: Resolver = (runtime, name) => getAgentByName(runtime.AppAgent, name)): Promise<Response> {
   const url = new URL(request.url);
