@@ -1,9 +1,17 @@
-# App contract foundation
+# App bridge transport
 
-This separate package prepares the public MVP's TypeScript boundary. It contains
-no Worker entry point, route, resource configuration, model call or deployment.
-The existing `workers/agent` and Python v1 surface remain independent. App tests
-pin patched Vitest/coverage 4.1.11; use Node 20, 22 or >=24 as its supported runtimes.
+This package contains the bounded private transport foundation for the public
+MVP. It calls only the current Python v2 service paths (`/v2/catalog`,
+`/v2/profile`, `/v2/query`, and `/v2/search`) through a mocked Fetcher
+contract. The public Worker, native Agent/Durable Object lifecycle, browser UI,
+model calls, and deployment are deferred to the dependent bridge slice. The
+existing `workers/agent` and Python service remain independent.
+
+The transport accepts strict request DTOs, projects search fields explicitly,
+streams request and response bodies under byte limits with fatal UTF-8 decoding,
+applies a five-second private-call timeout, and validates the existing domain
+envelopes, runtime mode, and expected job/run identities before returning a
+receipt. It never exposes service error bodies.
 
 ```sh
 npm ci --prefix workers/app
@@ -12,31 +20,27 @@ npm test --prefix workers/app -- --coverage
 make gate
 ```
 
-Closed source identities pin the reviewed sales/support demo hashes. Questions
-preserve their exact text within 1,024 UTF-8 bytes. Planner proposals require every
-field, with explicit nulls for unused fields. Sales supports profile-only and SQL
-proposals; support search preserves separate case-sensitive channel/customer and
-canonical UTC half-open start/end filters. They are source-bound structural
-proposals; SQL safety, lexical request validation, capabilities and authorization
-belong to the existing Python boundaries and later orchestration.
+The exported DTO schemas pin the reviewed sales/support source hashes and bound
+question, SQL, search, filter, and result sizes. Search date intervals are
+canonical UTC timestamps with an end after the start. `buildToolBody` drops
+public request metadata from the Python search body and adds only the v2 job,
+run, and source envelope fields. Callers still own capability and authorization
+checks at the future public Agent route boundary.
 
-`validatedEnvelope()` validates the common Python v2 envelope and recomputes the
-raw and typed payload digests. Its caller must provide a strict payload schema,
-the appropriate payload ceiling and the operation's required identifier semantics;
-only catalog consumers may accept three null IDs. This foundation does not yet
-validate every domain receipt or bind an envelope to an active job.
+`validatedDomainEnvelope()` validates the common Python v2 envelope, recomputes
+the typed payload digests, and checks receipt-specific identity/source/runtime
+rules. `executeTool` then binds every non-catalog response to the active job
+and run supplied by its caller; catalog is the only operation with null envelope
+identifiers.
 
-Canonical JSON follows Python's Unicode code-point key ordering and UTF-8 hashing.
-It accepts safe integers, strings, booleans, null and plain collections; it rejects
-floats, unsafe integers, negative zero, invalid Unicode and lossy values. Exact
-analytical numbers arrive as decimal strings. Later consumers must retain that
-domain or explicitly verify any additional numeric representation.
+The app contract foundation also provides Python-compatible canonical JSON and
+hashing for the domain receipts. Exact analytical numbers remain decimal strings;
+the bridge does not turn deterministic receipts into claims or publication.
 
-Prompts reuse the reference's closed proposals and independent Validator context,
-adapted for generic SQL, net cents and bounded lexical evidence. No retries or
-reference operation menu are imported. `supportedClaims()` checks complete claim
-dispositions and deterministic success; it grants no publication authority.
-
-Next slices must add strict domain receipts and candidate/Validator schemas,
-budgeted calls, source/job/hash binding, fenced publication and the web chat before
-this package becomes a runnable app.
+Tests use deterministic Fetcher responses and cover all four private paths,
+foreign identifiers, malformed UTF-8, stream overflow, strict search projection,
+tampered/invalid service responses, and safe service failures. The next bridge
+slice adds the public Agent and Durable Object lifecycle, strict `/api` routes,
+durable session state, cancellation/reset fencing, and Wrangler resources.
+Candidate/Validator schemas, Workers AI, and the web chat remain later
+capabilities.
