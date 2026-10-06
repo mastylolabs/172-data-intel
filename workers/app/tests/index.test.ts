@@ -33,9 +33,9 @@ function harness(fetch: Fetcher, initial = state(), AI: Env["AI"] = idleAI, AGEN
 function model(value: unknown): Env["AI"] { return { run: async () => ({ response: JSON.stringify(value) }) } as unknown as Env["AI"]; }
 function publishingModel(): Env["AI"] { let calls = 0; return { run: async (_model: string, input: unknown) => {
   if (calls++ === 0) return { response: JSON.stringify(planned) };
-  const body = JSON.parse((input as { messages: { content: string }[] }).messages[1].content) as { candidate: unknown; job_id: string; run_id: string; source: unknown; proposal: unknown; validator_input_sha256: string };
+  const body = JSON.parse((input as { messages: { content: string }[] }).messages[1].content) as { candidate: unknown; job_id: string; run_id: string; source: unknown; proposal: unknown; validator_input_sha256: string; validator_call_id: string };
   return { response: JSON.stringify({ version: "1", request_id: id, job_id: body.job_id, run_id: body.run_id, source: body.source, overall: "pass", deterministic_pass: true,
-    candidate_sha256: await payloadSha256(body.candidate), plan_sha256: await payloadSha256(body.proposal), validator_input_sha256: body.validator_input_sha256, validator_call_id: "22222222-2222-4222-8222-222222222222",
+    candidate_sha256: await payloadSha256(body.candidate), plan_sha256: await payloadSha256(body.proposal), validator_input_sha256: body.validator_input_sha256, validator_call_id: body.validator_call_id,
     policy_revision: "m4-validator.v1", claims: [{ claim_id: "answer", disposition: "supported", reason: "evidence" }], summary: "supported" }) };
 } } as unknown as Env["AI"]; }
 const planned = { version: "1", request_id: id, source, status: "plan", mode: "query", sql: "SELECT SUM(units) AS units FROM sales", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;

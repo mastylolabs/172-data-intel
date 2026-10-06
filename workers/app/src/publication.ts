@@ -35,7 +35,7 @@ export const publicationOutcome = z.discriminatedUnion("kind", [
 ]);
 export type ValidatorEnv = { AI: Pick<Ai, "run"> };
 export type PublicationBuild = { candidate: GroundedCandidate; context: EvidenceContext };
-export type ValidatorInput = { question: string; proposal: z.infer<typeof analystProposal>; context: EvidenceContext; meanings: z.infer<typeof meanings>; execution: z.infer<typeof execution>; candidate: GroundedCandidate; deterministic: CandidateCheck; job_id: string; run_id: string; source: GroundedCandidate["source"]; candidate_id?: string };
+export type ValidatorInput = { question: string; proposal: z.infer<typeof analystProposal>; context: EvidenceContext; meanings: z.infer<typeof meanings>; execution: z.infer<typeof execution>; candidate: GroundedCandidate; deterministic: CandidateCheck; job_id: string; run_id: string; source: GroundedCandidate["source"]; candidate_id?: string; validator_call_id?: string };
 
 function sourceEqual(left: GroundedCandidate["source"], right: GroundedCandidate["source"]): boolean {
   return left.source_id === right.source_id && left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;
@@ -112,7 +112,7 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
   const candidate_sha256 = await payloadSha256(input.candidate);
   const plan_sha256 = await payloadSha256(input.proposal);
   const payload = { version: "1", question: input.question, job_id: input.job_id, run_id: input.run_id, source: input.source, proposal: input.proposal, meanings: input.meanings, evidence_context: input.context, execution_receipt: input.execution,
-    candidate_id: input.candidate_id ?? null, candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
+    candidate_id: input.candidate_id ?? null, validator_call_id: input.validator_call_id ?? null, candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
   const validator_input_sha256 = await payloadSha256(payload);
   const body = JSON.stringify({ ...payload, validator_input_sha256 });
   const request = { messages: [{ role: "system" as const, content: VALIDATOR }, { role: "user" as const, content: body }],
@@ -125,8 +125,8 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
     const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), 30_000); });
     const raw = await Promise.race([env.AI.run(PLANNER_MODEL, request), timeout]);
     const value = validatorVerdict.safeParse(validatorJson(raw));
-    if (!value.success || value.data.request_id !== input.candidate.request_id || value.data.candidate_sha256 !== candidate_sha256 || value.data.plan_sha256 !== plan_sha256 || value.data.validator_input_sha256 !== validator_input_sha256 || value.data.job_id !== input.job_id || value.data.run_id !== input.run_id || !sourceEqual(value.data.source!, input.source)) return null;
-    const report = { ...value.data, candidate_id: value.data.candidate_id ?? input.candidate_id ?? input.candidate.request_id, validator_call: value.data.validator_call ?? "performed" as const, model_id: value.data.model_id ?? PLANNER_MODEL, prompt_revision: value.data.prompt_revision ?? "m4-validator.v1" };
+    if (!value.success || value.data.request_id !== input.candidate.request_id || value.data.candidate_sha256 !== candidate_sha256 || value.data.plan_sha256 !== plan_sha256 || value.data.validator_input_sha256 !== validator_input_sha256 || value.data.job_id !== input.job_id || value.data.run_id !== input.run_id || !sourceEqual(value.data.source!, input.source) || (input.validator_call_id !== undefined && value.data.validator_call_id !== input.validator_call_id)) return null;
+    const report = { ...value.data, candidate_id: input.candidate_id ?? input.candidate.request_id, validator_call_id: input.validator_call_id ?? value.data.validator_call_id, validator_call: "performed" as const, model_id: PLANNER_MODEL, prompt_revision: "m4-validator.v1" };
     return { ...report, report_sha256: await payloadSha256(report) };
   } catch { return null; } finally { if (timer !== undefined) clearTimeout(timer); }
 }

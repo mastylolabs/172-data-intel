@@ -303,7 +303,8 @@ export class AppAgent extends Agent<Env, BridgeState> {
     current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
     this.setState({ ...current, model_calls: current.model_calls + 1 });
-    const verdict = await runValidator(this.env, { question, proposal, context: built.context, meanings: { catalog, profile }, execution: evidence.execution, candidate: built.candidate, deterministic, job_id: job.job_id, run_id: runId, source: job.source, candidate_id: identity.candidate_id });
+    identity.validator_call_id = crypto.randomUUID();
+    const verdict = await runValidator(this.env, { question, proposal, context: built.context, meanings: { catalog, profile }, execution: evidence.execution, candidate: built.candidate, deterministic, job_id: job.job_id, run_id: runId, source: job.source, candidate_id: identity.candidate_id, validator_call_id: identity.validator_call_id });
     current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
     identity.validator_input_sha256 = verdict?.validator_input_sha256 ?? null;
