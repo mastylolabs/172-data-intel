@@ -11,11 +11,12 @@ The Agent now retains a server-only journal of the latest 32 request identities 
 
 ## Verification
 
-- Engineering gate on the implementation head: Ruff format/check, mypy (26 files), 249 Python tests, Radon average complexity A 2.9187 against the enforced 2.89 threshold, TypeScript typecheck, and 40 Vitest tests: all passed.
+- Engineering gate on the implementation head: Ruff format/check, mypy (26 files), 249 Python tests, canonical Radon average complexity A 2.9187, the enforced declaration average A 2.89, TypeScript typecheck, and 40 Vitest tests: all passed under the repository's A/B policy.
 - Agent coverage: 94.75% statements/lines, 86.25% branches, 100% functions.
 - Independent QA passed the exact head and additionally checked 48 concurrent budget admissions (24 accepted), UTC rollover, restoration, shared cross-session exhaustion, per-session precedence, 32-entry retention, replay/conflict/unavailable outcomes, legacy bootstrap, privacy, and safe malformed/provider failures.
 - Wrangler 4.147.0 dry-run resolved `ProofAgent`, `ProofBudget`, the private tools service, AI binding, version metadata, and the SQLite v2 migration. No upload occurred for this slice.
 - Provider checks passed on the current head: two GitHub gates, resolved review threads, configured `172x-reviewer-bot` approval, and guarded squash merge.
+- Important coverage gaps: concurrency, UTC rollover, and journal-boundary probes were additional uninstrumented checks; actual Cloudflare migration, restart/concurrency, deployed-request, and live-model paths remain unverified.
 
 The implementation diff contained 219 handwritten changed lines (206 additions and 13 deletions); 14 README prose lines, lockfiles, and bundled data were excluded from the code budget.
 
