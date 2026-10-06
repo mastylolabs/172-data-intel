@@ -47,8 +47,9 @@ make coverage
 
 `make install` and `make sync` use `uv sync --all-extras --dev`; `uv.lock` pins
 public application and developer dependencies. The editable `src/data_intel`
-package needs no private 172X dependency, service or credentials. There is no
-environment configuration or running server yet.
+package needs no private 172X dependency, service or credentials for local
+checks. Cloudflare Worker configuration and deployment variables are documented
+above; the running public app is the deployed URL in the current MVP section.
 
 Use `make format`, `lint`, `typecheck`, `test`, `complexity` or `coverage` for
 focused checks. `make gate` runs Ruff formatting/linting, strict mypy, pytest,
@@ -215,7 +216,8 @@ tooling in its own `pyproject.toml` and `uv.lock`, disables public Worker URLs a
 preview URLs,
 and reads its own version-metadata binding and injected `BUILD_REVISION`. Unknown
 routes answer 404; missing deployed provenance answers 503. The private query
-route is locally verified only and has no Agent caller or deployed SQL proof yet.
+route is called by the deployed app Agent through its service binding; deployed
+v2 SQL and runtime provenance are recorded in the final milestone report.
 
 From a **clean committed checkout** with the locked Worker dev tools installed,
 run `make python-worker-dry-run` to package without uploading. The helper refuses
