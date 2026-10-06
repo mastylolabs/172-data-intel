@@ -100,6 +100,7 @@ const queryRuntime = z.strictObject({
   (value.build_revision !== null && value.worker_version_id !== null));
 const integerCell = z.strictObject({ type: z.literal("integer"), value: integerText, exact: z.literal(true) });
 const canonicalFloat = (number: number): string => {
+  if (number === 0) return Object.is(number, -0) ? "-0.0" : "0.0";
   if (Object.is(number, -0)) return "-0.0";
   const absolute = Math.abs(number);
   if (absolute >= 1e16 || absolute < 1e-4) {
@@ -137,7 +138,9 @@ export const queryResultV2 = z.strictObject({
   value.rows.every((row) => row.length === value.columns.length));
 export type QueryResultV2 = z.infer<typeof queryResultV2>;
 
-const asciiTokens = (value: string): string[] => Array.from(new Set(value.toLowerCase().match(/[a-z0-9]+/g) ?? [])).sort();
+const asciiTokens = (value: string): string[] => Array.from(new Set(
+  value.replace(/[A-Z]/g, (char) => char.toLowerCase()).match(/[a-z0-9]+/g) ?? [],
+)).sort();
 const searchToken = z.string().regex(/^[a-z0-9]{1,32}$/);
 const searchRequest = z.strictObject({
   version: z.literal("2"), source: sourceSupport, query: boundedText(128), channel: labelValue(64).nullable(),

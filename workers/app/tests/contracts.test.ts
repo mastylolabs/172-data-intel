@@ -194,6 +194,7 @@ describe("app contract foundation", () => {
     expect(queryResultV2.parse(query).rows[0][0]).toEqual(query.rows[0][0]);
     expect(queryResultV2.safeParse({ ...query, rows: [[{ type: "real", value: "1", exact: false }]] }).success).toBe(false);
     expect(queryResultV2.safeParse({ ...query, rows: [[{ type: "real", value: "1.0", exact: false }]] }).success).toBe(true);
+    expect(queryResultV2.safeParse({ ...query, rows: [[{ type: "real", value: "0.0", exact: false }]] }).success).toBe(true);
     const search = {
       version: "2", source: { version: "1", source_id: "support",
         snapshot_sha256: "c6365aa74909b4deb09bb00114f7b489dcc8c9c152c57855db95fd6304e1e536",
@@ -212,6 +213,8 @@ describe("app contract foundation", () => {
     expect(searchReceiptV2.parse(search).hits).toEqual([]);
     expect(searchReceiptV2.safeParse({ ...search, matched_count: 1 }).success).toBe(false);
     expect(searchReceiptV2.safeParse({ ...search, request: { ...search.request, query: "a\u0000" } }).success).toBe(false);
+    expect(searchReceiptV2.safeParse({ ...search, request: { ...search.request, query: "É" } }).success).toBe(false);
+    expect(searchReceiptV2.safeParse({ ...search, request: { ...search.request, query: "CSV İNV" } }).success).toBe(true);
     const catalogEnvelope = await envelope();
     await expect(validatedDomainEnvelope("query", {
       ...catalogEnvelope, payload: query, payload_sha256: await payloadSha256(query),
