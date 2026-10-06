@@ -30,6 +30,16 @@ class _WorkerEntrypoint:
     env: object
 
 
+class _BrokenRequest:
+    @property
+    def method(self) -> str:
+        raise JsException("method unavailable")
+
+    @property
+    def url(self) -> str:
+        raise JsException("url unavailable")
+
+
 def test_private_entrypoint_requires_own_provenance_and_has_no_public_route(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -53,6 +63,8 @@ def test_private_entrypoint_requires_own_provenance_and_has_no_public_route(
     assert (valid.status, json.loads(valid.body)["code"]) == (404, "not_found")
     malformed = asyncio.run(worker.fetch(SimpleNamespace(method="GET", url=None)))
     assert (malformed.status, json.loads(malformed.body)["code"]) == (400, "unsupported_transport")
+    broken = asyncio.run(worker.fetch(_BrokenRequest()))
+    assert (broken.status, json.loads(broken.body)["code"]) == (400, "unsupported_transport")
     assert valid.headers == {"content-type": "application/json"}
     health = asyncio.run(worker.fetch(SimpleNamespace(method="GET", url="https://tools/health")))
     assert health.status == 200

@@ -27,7 +27,7 @@ class Default(WorkerEntrypoint):  # type: ignore[misc]
             if not isinstance(raw_url, str):
                 raise TypeError("invalid request URL")
             path = urlsplit(raw_url).path
-        except (AttributeError, TypeError, ValueError):
+        except (AttributeError, JsException, OSError, TypeError, ValueError):
             status, body = error_response("unsupported_transport", "transport")
             return Response(body, status=status, headers={"content-type": "application/json"})
         if isinstance(method, str) and path.startswith("/v2/"):
