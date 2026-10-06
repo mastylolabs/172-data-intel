@@ -14,6 +14,8 @@ export interface Env extends TransportEnv {
   AppAgent: DurableObjectNamespace<AppAgent>;
   BUILD_REVISION?: string;
   CF_VERSION_METADATA?: { id: string };
+  TOOLS_BUILD_REVISION?: string;
+  TOOLS_WORKER_VERSION_ID?: string;
 }
 type PublicState = Record<string, unknown>;
 type Outcome = { request_id: string; input_sha256: string; kind: ResultKind; snapshot: PublicState };
@@ -111,9 +113,9 @@ function capability(source: Source, kind: ResultKind): void {
     throw new BridgeError("capability_mismatch", 422);
   }
 }
-function trustedRuntime(env: Env, receipt: Envelope<unknown>): boolean {
-  return env.RUNTIME_MODE === "local" || (receipt.runtime.build_revision === env.BUILD_REVISION &&
-    receipt.runtime.worker_version_id === env.CF_VERSION_METADATA?.id);
+export function trustedRuntime(env: Env, receipt: Envelope<unknown>): boolean {
+  return env.RUNTIME_MODE === "local" || (receipt.runtime.build_revision === env.TOOLS_BUILD_REVISION &&
+    receipt.runtime.worker_version_id === env.TOOLS_WORKER_VERSION_ID);
 }
 function sameSource(left: Source, right: Source): boolean {
   return left.source_id === right.source_id && left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;

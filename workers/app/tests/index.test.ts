@@ -4,7 +4,7 @@ vi.mock("agents", () => ({ Agent: class {
   constructor(ctx: { waitUntil(promise: Promise<unknown>): void }, env: unknown) { this.ctx = ctx; this.env = env; }
   setState(value: unknown): void { this.state = value; }
 }, getAgentByName: vi.fn() }));
-import { AppAgent, publicFetch, type BridgeState, type Env } from "../src/index";
+import { AppAgent, publicFetch, trustedRuntime, type BridgeState, type Env } from "../src/index";
 import { payloadSha256 } from "../src/policy";
 import { initialSessionState } from "../../agent/src/v2-state";
 
@@ -95,5 +95,11 @@ describe("native app lifecycle", () => {
   it("fails safely for corrupt durable state", async () => {
     const test = harness(tools().fetcher, { ...state(), session: null as unknown as BridgeState["session"] });
     expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(503);
+  });
+  it("binds deployed receipts to the private tools identity", () => {
+    const receipt = { runtime: { ...runtime, runtime_mode: "deployed", build_revision: "a".repeat(40), worker_version_id: "22222222-2222-4222-8222-222222222222" } } as Parameters<typeof trustedRuntime>[1];
+    const deployed = { ...env({} as Fetcher), RUNTIME_MODE: "deployed" as const, TOOLS_BUILD_REVISION: "a".repeat(40), TOOLS_WORKER_VERSION_ID: "22222222-2222-4222-8222-222222222222" };
+    expect(trustedRuntime(deployed, receipt)).toBe(true);
+    expect(trustedRuntime({ ...deployed, TOOLS_WORKER_VERSION_ID: "33333333-3333-4333-8333-333333333333" }, receipt)).toBe(false);
   });
 });
