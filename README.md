@@ -124,6 +124,6 @@ need a reviewed probe.
 
 The [Agent wire foundation](workers/agent/README.md) adds pinned TypeScript tooling,
 strict private Python response validation, exact hash parity and bounded JSON
-stream helpers. Run its documented typecheck/tests alongside `make gate`. Its
-Wrangler scaffold has no entrypoint yet; native Agent routing, sessions, private
-service calls and deployment belong to the next reviewed slice.
+stream helpers. `make gate` also runs its clean npm install, typecheck and Vitest
+tests through `make typescript-gate`. Native Agent routing, sessions, private
+service calls and Wrangler/deployment configuration belong to the next reviewed slice.

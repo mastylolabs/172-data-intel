@@ -90,11 +90,13 @@ describe("Python wire boundary", () => {
       max_rows: 20,
     };
     expect(sqlInput.parse(input)).toEqual(input);
+    expect(sqlInput.parse({ ...input, question: "😀".repeat(2000) }).question).toHaveLength(4000);
     for (const patch of [
       { max_rows: "20" },
       { sql: "é".repeat(4001) },
       { sql: " " },
       { question: " " },
+      { question: "😀".repeat(2001) },
       { extra: true },
     ]) {
       expect(sqlInput.safeParse({ ...input, ...patch }).success).toBe(false);

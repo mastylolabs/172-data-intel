@@ -2,22 +2,21 @@
 
 This project validates the existing private Python service wire boundary. It does
 not run an Agent, expose HTTP routes, call AI, or establish deployed compatibility.
-The Wrangler scaffold has no entrypoint, Durable Object or service binding yet;
-do not deploy this foundation. The next reviewed slice adds the native Agent and
-restricted engine proof bridge using the private `TOOLS` binding.
+Wrangler configuration is deferred to P3b-2. The next reviewed slice adds the native
+Agent and restricted engine proof bridge using the private `TOOLS` binding.
 
 ```sh
-npm ci --prefix workers/agent
-npm run typecheck --prefix workers/agent
-npm test --prefix workers/agent
+make typescript-gate
 npm test --prefix workers/agent -- --coverage
 ```
 
-The Agent project pins Agents SDK 0.26.0, Zod 4.6.5, Wrangler 4.147.0 and Vitest
-3.2.7. The Python tools Worker retains its separately reviewed Wrangler 4.127.1.
-The scaffold disables workers.dev and preview URLs and uses a distinct name from
-the reference application. Credentials, public routes and deployment authorization
-belong to the dependent bridge/deployment work, not this wire foundation.
+The root `make gate` invokes `typescript-gate`: a clean lockfile install, TypeScript
+typecheck and Vitest tests. The existing CI quality workflow therefore enforces
+these checks alongside the Python gate.
+
+The Agent project pins Agents SDK 0.26.0, Zod 4.6.5 and Vitest 3.2.7. The Python
+tools Worker retains its separately reviewed Wrangler 4.127.1. Credentials, public
+routes and deployment authorization belong to the dependent bridge/deployment work.
 
 `contracts.ts` forbids unknown fields, pins the source/policy limits, bounds SQL
 and typed cells, checks result shape, and hashes the Python canonical result
