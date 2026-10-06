@@ -193,17 +193,18 @@ physical source, so bare `count(*)` queries must use `main.sales`; CTEs named
 `sales` cannot satisfy source authorization. The private `service_contracts.py`
 adapter validates version-1 requests and exact typed results, including hashes,
 cell encoding, the complete 16,384-byte result envelope and explicit runtime
-provenance. Local parity
-tests execute the existing engine; deployed service execution remains unverified.
+provenance. Local parity tests execute the existing engine; deployed v2 service
+execution is covered by the final smoke report.
 The private Python Worker now routes GET `/health`, GET `/metadata`, and bounded
 POST `/query` over a service binding. Health probes the SQLite policy, metadata
 returns the pinned sales source and field meanings, and query executes only the
 approved fixture with typed receipts and safe error codes. The Worker rejects
-oversized streamed bodies before JSON parsing; no public route is configured.
-Local service tests pass, but deployed service-binding behavior remains unverified.
-Full profiling, support retrieval, analytical/citation validation, persistence,
-model calls, UI and deployment remain planned. Cloudflare Python/SQLite
-compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for
+oversized streamed bodies before JSON parsing; the tools Worker itself has no
+public route, while the app exposes the public chat through its service binding.
+Local service tests and the deployed v2 service path are covered by the final
+smoke report. Profiling, support retrieval, analytical/citation validation,
+persistence, model calls, UI and deployment are delivered in the current MVP;
+larger capabilities remain planned. Follow [TODO.md](TODO.md) for
 the next bounded capability. Full GO permits
 continuing the approved milestones; each retains its report and independent gates.
 
@@ -229,11 +230,12 @@ that every committed `src/data_intel` Python source file matches the vendored
 bundle; Pywrangler's
 ordinary timestamp check does not track local source edits.
 The older Wrangler 4.11.1 returned a false-success bundle without vendored
-modules; use the pinned package and lockfile. Deployed runtime controls still
-need a reviewed probe.
+modules; use the pinned package and lockfile. Deployed runtime controls are
+verified in the final milestone smoke report.
 
 The [Agent wire foundation](workers/agent/README.md) adds pinned TypeScript tooling,
 strict private Python response validation, exact hash parity and bounded JSON
 stream helpers. `make gate` also runs its clean npm install, typecheck and Vitest
 tests through `make typescript-gate`. Native Agent routing, sessions, private
-service calls and Wrangler/deployment configuration belong to the next reviewed slice.
+service calls and Wrangler/deployment configuration are delivered by the app
+Worker; see the final milestone report for the reviewed deployment evidence.
