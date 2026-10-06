@@ -64,6 +64,16 @@ fixture is also included in the built Python wheel.
 uv run python -c 'from data_intel.sales_fixture import load_sales_fixture; print(load_sales_fixture().profile)'
 ```
 
+M3-P1 adds the separate 24-row [synthetic sales demo](docs/fixtures/sales-demo.md).
+`load_sales_demo()` verifies the server-owned `sales-demo.v1` identity, exact
+1,025-byte hash manifest and strict immutable rows. It preserves returns, paired
+zero measures, net USD cents and fixture order. This loader returns no profile
+and does not register the demo with the existing proof query engine or Agent.
+
+```sh
+uv run python -c 'from data_intel.sales_demo import load_sales_demo; print(len(load_sales_demo().rows))'
+```
+
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
 then installs the private read-only, authorizer, limit and progress controls. Its
