@@ -34,6 +34,15 @@ implementation only after prerequisite contracts are reviewed and merged.
 | **M4: Durable, independently validated analysis conversations** | M3 source/evidence/validation contracts merged | Candidate boundaries: bounded Analyst planning and clarification/conditional Semantic path; candidate claims plus separate Llama 3.3 Validator context; Agent coordination/publication gate; durable accepted memory, isolation, budgets, retry and interruption handling. | Plans use question/schema/profile/field meanings; ambiguous meaning asks for clarification; Validator checks query meaning, numerical claims, citations and candidate answer before publication; wrong or insufficient claims fail/abstain. Refresh/follow-ups retain selected source and accepted evidence. Duplicate submit, cancellation, disconnect, stale completion and provider failure have explicit safe outcomes; model calls/retries/context are bounded; session separation and secret redaction pass adversarial tests. |
 | **M5: Shareable web chat and final deployed acceptance** | M4 merged; affected UI/operational contracts reviewed | Candidate boundaries: source selection, suggested questions and chat/progress; answer/evidence inspection and clarification/failure UI; integration/browser fixes; public setup/deployment instructions and final authorized Cloudflare deployment. | Both dataset journeys and questions beyond suggestions work in the reviewed deployment; evidence is inspectable and candidates remain private until validated. Applicable TypeScript/browser checks, refresh/follow-up/isolation/unsafe-input tests and full Python gate pass. Record real model/provider failures and measured unit coverage. Final report supplies live URL, setup/deploy instructions, examples, test results and limitations. |
 
+The first P3 boundary, **P3a**, adds private Python service routes and bounded
+Worker request transport after P2, the source-refresh correction in PR #13,
+and the shared transport foundation in PR #15 are merged. Acceptance:
+authoritative bounded health/metadata, exact typed query
+receipts, stable refusals for malformed/unsafe/oversized requests, no public route,
+full engineering gate, measured coverage and a clean non-uploading Worker dry-run.
+This foundation does not add the native Agent, AI or deployment; the dependent
+restricted Agent/state/budget/proof bridge owns actual deployed service receipts.
+
 M2 preview resources must use distinct names from the reference application's
 resources. The reference repository `/Users/zbigniew/dev/code/172x-data-intelligence`,
 its PRs and running deployment remain unchanged. Reuse inspected sound components

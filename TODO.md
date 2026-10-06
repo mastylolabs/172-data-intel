@@ -22,8 +22,10 @@
   a false-success bundle without dependencies. The Worker package now pins
   Wrangler 4.127.1 and the helper refuses lock regeneration or missing modules
   in its temporary dry-run artifact. A focused correction also forces local
-  source sync and checks exact vendored Python bytes. Next: review the corrected private build,
-  then a reviewed native Agent bridge for deployed SQL/control receipts, followed
+  source sync and checks exact vendored Python bytes. Private Python `/health`,
+  `/metadata`, and bounded `/query` routes now have local contract/stream tests
+  but no deployed service-binding proof. Next: review the private routes, then
+  build the native Agent bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A
   bounded Llama access preflight failed with daily free allocation rejection; real
