@@ -20,8 +20,8 @@ query job and existing 12/hour session plus 24/day global admissions still
 apply. This M4 contract adds a separately versioned v2 Validator context with
 the 40,960-byte cap above because it must carry complete bounded receipts and
 field meanings; it has its own 4,096-byte output cap, strict JSON verdict and
-the same no-stream/no-technical-retry rules. The v2 four-model/two-tool job
-ceiling is stage accounting under the existing session/hour and global/day
+the same no-stream/no-technical-retry rules. The v2 four-model/two-evidence/
+two-validation-call ceiling is stage accounting under the existing session/hour and global/day
 ceilings, not a quota increase or a widening of v1. A v2 admission record
 must consume the existing `ProofBudget` owner, and mixed-version calls cannot
 share or reset counters.

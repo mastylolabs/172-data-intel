@@ -7,7 +7,7 @@
 - Matrix artifact and version: `M4-C0 readiness-v6`, 2026-10-06.
 - Brief: `M4-BRIEF-v1`, SHA256 `2e85ff1775ce38cb08ee675e613a2650868fb779cb6cddfeb46d36d1b5a906ec`.
 - UX/UI: `M4-UX-v2`, SHA256 `e618959760c4ccf4c627a4d32b5d1eb4c3594ab758c45679ea5c857beffa1679`.
-- Architecture: `M4-ARCH-v2`, SHA256 `da63ec233b75ef3969178dd6f93bac15dcd0452b80bfe5a29611f514889c92ca`.
+- Architecture: `M4-ARCH-v2`, SHA256 `289ddd474d0004ef3063b6c550c11fd6cb6da7065bf7319a7bc922e51bf968a5`.
 - Threat/control: `M4-THREAT-v2`, SHA256 `6f9faaecfa1fbdfd5e8cced5abf2cafabe98aa5a524c05b7e52dc563812b5941`.
 - Immutable architecture: SHA256 `2046e837044efad2737cae080c011ae9c2d0f809302a7d9505749f973cf4d9dd`.
 - M2 runtime contracts: SHA256 `ddfb5fbb1aedae396a6434fc0c42ebf433280c548ea6b0ff6c684a800c1d3c21`.
