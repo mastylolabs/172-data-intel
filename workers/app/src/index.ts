@@ -12,8 +12,6 @@ import {
 
 export interface Env extends TransportEnv {
   AppAgent: DurableObjectNamespace<AppAgent>;
-  BUILD_REVISION?: string;
-  CF_VERSION_METADATA?: { id: string };
   TOOLS_BUILD_REVISION?: string;
   TOOLS_WORKER_VERSION_ID?: string;
 }
@@ -70,7 +68,13 @@ async function validState(agent: AppAgent): Promise<BridgeState> {
   try {
     if (state.result !== null && state.result_kind !== null) await validatedDomainEnvelope(state.result_kind, state.result);
     for (const outcome of state.outcomes) {
-      if (outcome.snapshot.last_result !== null) await validatedDomainEnvelope(outcome.kind, outcome.snapshot.last_result);
+      const active = outcome.snapshot.active_job as Record<string, unknown> | null;
+      if (active === null || active.request_id !== outcome.request_id ||
+        typeof active.job_id !== "string" || !("last_result" in outcome.snapshot)) throw new Error("outcome_owner");
+      if (outcome.snapshot.last_result !== null) {
+        const envelope = await validatedDomainEnvelope(outcome.kind, outcome.snapshot.last_result);
+        if (envelope.job_id !== active.job_id) throw new Error("outcome_job");
+      }
     }
     return state;
   } catch { throw new BridgeError("state_corrupt", 503); }
