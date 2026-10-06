@@ -40,6 +40,7 @@ describe("native app lifecycle", () => {
     expect((await refreshed.json() as { last_result: unknown }).last_result).not.toBeNull();
     const replay = await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id }));
     expect(replay.status).toBe(200);
+    expect((await test.agent.onRequest(post("/api/query", { version: "2", request_id: id, question: "changed", sql: "SELECT 1", max_rows: 1 }))).status).toBe(409);
   });
   it("selects support, runs targeted search, and rejects a sales capability mismatch", async () => {
     const test = harness(tools().fetcher);
