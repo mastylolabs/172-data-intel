@@ -35,10 +35,10 @@ class QueryResultV2(QueryResult):
 
 class ClaimScopeV2(_Value):
     source: SourceIdentity
+    unit: Short
     period: dict[str, str] | None = None
     filters: tuple[tuple[str, str], ...] = ()
     group: str | None = None
-    unit: Short
 
 
 class ResultRefV2(_Value):
@@ -55,13 +55,24 @@ class CalculationV2(_Value):
     formula: str = Field(min_length=1, max_length=256, strict=True)
 
 
+class ExactIntegerV2(_Value):
+    kind: Literal["exact_integer"] = "exact_integer"
+    value: IntegerText
+    unit: Short
+
+    @model_validator(mode="after")
+    def signed_int64(self) -> Self:
+        if not INT_MIN <= int(self.value) <= INT_MAX:
+            raise ValueError("integer overflow")
+        return self
+
+
 class NumericalClaimV2(_Value):
     version: Literal["2"] = "2"
     claim_id: UUID
     claim_type: Literal["scalar", "ranking", "comparison", "count", "sum"]
     text: str = Field(min_length=1, max_length=1024, strict=True)
-    value: IntegerText
-    unit: Short
+    value: ExactIntegerV2
     scope: ClaimScopeV2
     result_ref: ResultRefV2
     calculation: CalculationV2
@@ -70,8 +81,8 @@ class NumericalClaimV2(_Value):
 
     @model_validator(mode="after")
     def bounded(self) -> Self:
-        if len(self.text.encode("utf-8")) > 1024 or not INT_MIN <= int(self.value) <= INT_MAX:
-            raise ValueError("invalid numeric value")
+        if len(self.text.encode("utf-8")) > 1024:
+            raise ValueError("claim text too large")
         if self.result_ref.receipt_id not in self.evidence_refs:
             raise ValueError("missing evidence reference")
         return self
@@ -87,20 +98,7 @@ class NumericEvidenceV2(_Value):
     def verify_payload(self) -> Self:
         if self.payload.source != self.scope.source:
             raise ValueError("source_mismatch")
-        if isinstance(self.payload, QueryResultV2):
-            if self.payload.version != "2":
-                raise ValueError("unsupported_version")
-            if self.receipt_id != self.payload.receipt_id:
-                raise ValueError("result_ref_mismatch")
-            if any((self.scope.period, self.scope.filters, self.scope.group)):
-                raise ValueError("unsupported_scope")
-            if self.scope.unit != _query_unit(self.payload):
-                raise ValueError("unit_mismatch")
-            digest = _digest(self.payload.model_dump(mode="json"))
-        else:
-            digest = sha256(canonical_profile_json(self.payload)).hexdigest()
-            if any((self.scope.period, self.scope.filters, self.scope.group)):
-                raise ValueError("scope_mismatch")
+        digest = _payload_digest(self.payload, self.scope, self.receipt_id)
         if self.payload_sha256 != digest:
             raise ValueError("payload_mismatch")
         return self
@@ -123,6 +121,21 @@ class NumericalCheckReportV2(_Value):
     report_sha256: Digest
 
 
+def _payload_digest(payload: QueryResultV2 | DataProfileV2, scope: ClaimScopeV2, rid: UUID) -> str:
+    if isinstance(payload, QueryResultV2):
+        if payload.version != "2":
+            raise ValueError("unsupported_version")
+        if rid != payload.receipt_id:
+            raise ValueError("result_ref_mismatch")
+        if scope.period is not None or scope.filters or scope.group is not None:
+            raise ValueError("unsupported_scope")
+        _query_unit(payload)
+        return _digest(payload.model_dump(mode="json"))
+    if scope.period is not None or scope.filters or scope.group is not None:
+        raise ValueError("scope_mismatch")
+    return sha256(canonical_profile_json(payload)).hexdigest()
+
+
 def _bytes(value: object) -> bytes:
     try:
         return json.dumps(
@@ -143,7 +156,7 @@ def _query_unit(payload: QueryResultV2) -> str:
     ):
         raise ValueError("unsupported_scope")
     match = re.fullmatch(
-        r"SELECT (count\(\*\)|units|revenue_cents) AS ([A-Za-z_][A-Za-z0-9_]*)"
+        r"SELECT (count\(\*\)|units|revenue_cents) AS ([A-Za-z_]\w*)"
         r" FROM main\.sales",
         payload.actual_sql,
         re.I,
@@ -169,7 +182,7 @@ def _cell(payload: QueryResultV2, column: str, index: int) -> int:
 def _profile_value(claim: NumericalClaimV2, payload: DataProfileV2) -> int:
     ref, calc = claim.result_ref, claim.calculation
     measure = next((item for item in payload.measures if item.field == ref.column), None)
-    if measure is None or measure.unit != claim.unit or ref.cell_path != "sum":
+    if measure is None or measure.unit != claim.value.unit or ref.cell_path != "sum":
         raise ValueError("result_ref_mismatch")
     if calc.kind != "direct_cell" or calc.inputs != (ref.column,) or calc.formula != ref.column:
         raise ValueError("unsupported_formula")
@@ -222,7 +235,9 @@ def validate_numeric(
         _check_claim_shape(claim)
         if claim.scope != evidence.scope:
             raise ValueError("scope_mismatch")
-        if claim.unit != claim.scope.unit:
+        if isinstance(evidence.payload, QueryResultV2) and claim.value.unit != _query_unit(
+            evidence.payload
+        ):
             raise ValueError("unit_mismatch")
         if (claim.result_ref.receipt_id, claim.result_ref.payload_sha256) != (
             evidence.receipt_id,
@@ -234,7 +249,7 @@ def validate_numeric(
             if isinstance(evidence.payload, DataProfileV2)
             else _query_value(claim, evidence.payload)
         )
-        if value != int(claim.value):
+        if value != int(claim.value.value):
             raise ValueError("value_mismatch")
         status: Status = "pass"
         code = "exact_match"
