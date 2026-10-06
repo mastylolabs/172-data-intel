@@ -119,6 +119,15 @@ are later slices.
 uv run python -c 'from data_intel.support_demo import load_support_demo; print(len(load_support_demo().rows))'
 ```
 
+M3-P4a adds strict immutable `SearchRequestV2`, `SearchHit` and `SearchReceiptV2`
+in `search_models.py`, plus reusable distinct ASCII tokenization. Request tokens,
+UTC intervals, hit scores/tokens, receipt counts/source bindings and fixed
+coverage limitations are validated. Canonical JSON is key-sorted UTF-8, capped
+at 2,048 bytes per request and 8,192 per receipt; payload hashes cover that exact
+content. Models preserve quotes but do not authenticate them against loaded
+messages or execute retrieval. Ranking, filtering, deadlines and source-backed
+search remain P4b; citation validation and service exposure remain later slices.
+
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
 then installs the private read-only, authorizer, limit and progress controls. Its
