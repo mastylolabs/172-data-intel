@@ -6,6 +6,11 @@ export const text = (maximum: number): z.ZodType<string> => z.string().refine((v
   new TextEncoder().encode(value).byteLength <= maximum);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const uuid = z.uuid().refine((value) => value === value.toLowerCase());
+const label = text(64).refine((value) =>
+  value === value.trim() && !/[\p{Cc}\p{Cf}]/u.test(value));
+const timestamp = z.iso.datetime({ precision: 0 }).refine((value) =>
+  !value.startsWith("0000") && Number.isFinite(Date.parse(value)) &&
+  new Date(value).toISOString() === value.replace("Z", ".000Z"));
 export const approvedSource = z.discriminatedUnion("source_id", [
   z.strictObject({
     version: z.literal("1"),
@@ -28,20 +33,40 @@ export const questionInput = z.strictObject({
 });
 export function plannerProposal(source: Source): z.ZodType<{
   status: "plan" | "clarify";
+  mode: "profile" | "query" | "search" | "clarify";
   sql: string | null;
   query: string | null;
+  channel: string | null;
+  customer: string | null;
+  start: string | null;
+  end: string | null;
   question: string | null;
 }> {
   const selected = approvedSource.parse(source);
   return z.strictObject({
     status: z.enum(["plan", "clarify"]),
+    mode: z.enum(["profile", "query", "search", "clarify"]),
     sql: text(8000).nullable(),
     query: text(128).nullable(),
+    channel: label.nullable(),
+    customer: label.nullable(),
+    start: timestamp.nullable(),
+    end: timestamp.nullable(),
     question: text(512).nullable(),
-  }).refine((value) => value.status === "clarify"
-    ? value.question !== null && value.sql === null && value.query === null
-    : value.question === null && (selected.source_id === "sales"
-      ? value.sql !== null && value.query === null : value.query !== null && value.sql === null));
+  }).refine((value) => {
+    const unfiltered = [value.channel, value.customer, value.start, value.end].every((v) => v === null);
+    const noTools = value.sql === null && value.query === null;
+    if (value.status === "clarify") {
+      return value.mode === "clarify" && value.question !== null && noTools && unfiltered;
+    }
+    if (value.question !== null) return false;
+    if (value.mode === "profile") return selected.source_id === "sales" && noTools && unfiltered;
+    if (value.mode === "query") {
+      return selected.source_id === "sales" && value.sql !== null && value.query === null && unfiltered;
+    }
+    return value.mode === "search" && selected.source_id === "support" && value.query !== null &&
+      value.sql === null && (value.start === null || value.end === null || value.start < value.end);
+  });
 }
 const runtime = z.strictObject({
   python_version: text(32),

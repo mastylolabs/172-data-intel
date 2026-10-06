@@ -38,18 +38,49 @@ describe("app contract foundation", () => {
   });
   it("keeps proposals source-bound, generic and explicitly non-executable", () => {
     const proposal = plannerProposal(source);
-    const planned = { status: "plan", sql: "DELETE FROM sales", query: null, question: null };
+    const planned = {
+      status: "plan", mode: "query", sql: "DELETE FROM sales", query: null,
+      channel: null, customer: null, start: null, end: null, question: null,
+    } as const;
     // Schema acceptance grants no SQL safety; the Python engine owns authorization/execution.
     expect(proposal.parse(planned)).toEqual(planned);
     for (const change of [{ operation: "total" }, { sql: null }, { query: "export" }, { question: "Why?" }]) {
       expect(proposal.safeParse({ ...planned, ...change }).success).toBe(false);
     }
-    expect(proposal.safeParse({ status: "clarify", sql: null, query: null, question: "Which period?" }).success).toBe(true);
+    expect(proposal.safeParse({ status: "clarify", mode: "clarify", sql: null, query: null,
+      channel: null, customer: null, start: null, end: null, question: "Which period?" }).success).toBe(true);
+    expect(proposal.safeParse({ status: "plan", mode: "profile", sql: null, query: null,
+      channel: null, customer: null, start: null, end: null, question: null }).success).toBe(true);
     const support = approvedSource.parse({ version: "1", source_id: "support",
       snapshot_sha256: "c6365aa74909b4deb09bb00114f7b489dcc8c9c152c57855db95fd6304e1e536",
       meaning_revision: "support-demo.v1" });
-    expect(plannerProposal(support).safeParse({ ...planned, sql: null, query: "export" }).success).toBe(true);
+    expect(plannerProposal(support).safeParse({ ...planned, mode: "search", sql: null, query: "export" }).success).toBe(true);
     expect(plannerProposal(support).safeParse(planned).success).toBe(false);
+  });
+  it("preserves support filters and refuses contradictory or malformed planning scope", () => {
+    const support = approvedSource.parse({ version: "1", source_id: "support",
+      snapshot_sha256: "c6365aa74909b4deb09bb00114f7b489dcc8c9c152c57855db95fd6304e1e536",
+      meaning_revision: "support-demo.v1" });
+    const scoped = plannerProposal(support);
+    const search = { status: "plan", mode: "search", sql: null, query: "export", question: null,
+      channel: "Email", customer: "Atlas", start: "2026-01-01T00:00:00Z", end: "2026-02-01T00:00:00Z" };
+    expect(scoped.parse(search)).toEqual(search);
+    for (const change of [
+      { mode: "profile", query: null }, { sql: "SELECT 1" }, { channel: " Email" },
+      { channel: "é".repeat(33) }, { customer: "\u200b" }, { start: search.end },
+      { end: "2025-12-31T23:59:59Z" }, { start: "2026-02-30T00:00:00Z" },
+      { start: "2026-01-01T00:00:00+00:00" }, { end: "2026-02-01T00:00:00.000Z" },
+      { start: "0000-01-01T00:00:00Z" }, { start: "2026-01-01" },
+      { status: "clarify", question: "Which channel?" },
+    ]) expect(scoped.safeParse({ ...search, ...change }).success).toBe(false);
+    for (const field of ["mode", "channel", "customer", "start", "end"]) {
+      const omitted: Record<string, unknown> = { ...search };
+      delete omitted[field];
+      expect(scoped.safeParse(omitted).success).toBe(false);
+    }
+    expect(scoped.safeParse({ ...search, start: null }).success).toBe(true);
+    expect(scoped.safeParse({ ...search, end: null }).success).toBe(true);
+    expect(plannerProposal(source).safeParse({ ...search, mode: "profile", query: null }).success).toBe(false);
   });
   it("round-trips strict Python v2 envelope metadata and exact payload hashes", async () => {
     const wire = await envelope();

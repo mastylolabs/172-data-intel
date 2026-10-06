@@ -14,7 +14,9 @@ make gate
 
 Closed source identities pin the reviewed sales/support demo hashes. Questions
 preserve their exact text within 1,024 UTF-8 bytes. Planner proposals require every
-field, with explicit nulls for unused fields. They are source-bound structural
+field, with explicit nulls for unused fields. Sales supports profile-only and SQL
+proposals; support search preserves separate case-sensitive channel/customer and
+canonical UTC half-open start/end filters. They are source-bound structural
 proposals; SQL safety, lexical request validation, capabilities and authorization
 belong to the existing Python boundaries and later orchestration.
 
