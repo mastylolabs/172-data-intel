@@ -13,6 +13,7 @@ import {
   beginJob, cancelJob, finishJob, initialSessionState, parseSessionState, publicSnapshot,
   resetSession, selectSource, storeJob, type JobV2, type SessionStateV2,
 } from "../../agent/src/v2-state";
+import { appHtml } from "./ui";
 
 export interface Env extends TransportEnv, ModelEnv {
   AppAgent: DurableObjectNamespace<AppAgent>;
@@ -38,6 +39,7 @@ type JobRequest = { kind: JobKind; body: Record<string, unknown> };
 type AgentStub = { fetch(request: Request): Promise<Response> };
 type Resolver = (env: Env, name: string) => Promise<AgentStub>;
 const routes: Record<string, string> = {
+  "/": "GET",
   "/api/state": "GET", "/api/source": "POST", "/api/ask": "POST", "/api/profile": "POST", "/api/query": "POST",
   "/api/search": "POST", "/api/cancel": "POST", "/api/reset": "POST",
 };
@@ -473,11 +475,12 @@ async function sessionName(request: Request): Promise<{ token: string; name: str
   return { token, name: Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""), isNew: existing === undefined };
 }
 function headers(response: Response): Response {
-  const result = new Response(response.body, response); result.headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'"); return result;
+  const result = new Response(response.body, response); result.headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"); return result;
 }
 export async function publicFetch(request: Request, env: Env, resolve: Resolver = (runtime, name) => getAgentByName(runtime.AppAgent, name)): Promise<Response> {
   const url = new URL(request.url);
   if (!(url.pathname in routes)) return headers(json({ version: "2", code: "not_found" }, 404));
+  if (url.pathname === "/" && request.method === "GET") return headers(new Response(appHtml, { headers: { "content-type": "text/html; charset=utf-8" } }));
   if (request.headers.has("upgrade")) return headers(json({ version: "2", code: "unsupported_transport" }, 400));
   if (request.method !== "GET" && request.headers.get("origin") !== url.origin) return headers(json({ version: "2", code: "access_denied" }, 403));
   if (routes[url.pathname] !== request.method) return headers(json({ version: "2", code: "not_found" }, 404));

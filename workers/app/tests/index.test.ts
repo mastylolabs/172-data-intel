@@ -196,6 +196,14 @@ describe("native app lifecycle", () => {
     expect((await publicFetch(new Request("https://app.test/api/reset", { method: "POST", headers: { origin: "https://other.test" } }), env({} as Fetcher), resolver)).status).toBe(403);
     const rotated = await publicFetch(new Request("https://app.test/api/reset", { method: "POST", headers: { cookie: `di_session=${"b".repeat(64)}`, origin: "https://app.test" } }), env({} as Fetcher), resolver); expect(rotated.headers.get("set-cookie")).not.toContain("b".repeat(64)); expect((await publicFetch(new Request("https://app.test/api/unknown"), env({} as Fetcher), resolver)).status).toBe(404);
   });
+  it("serves the same-origin web chat shell", async () => {
+    const response = await publicFetch(new Request("https://app.test/"), env({} as Fetcher));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toContain("script-src 'unsafe-inline'");
+    expect(response.headers.get("content-security-policy")).toContain("connect-src 'self'");
+    expect(await response.text()).toContain("Inspect evidence");
+  });
   it("fails safely for corrupt durable state", async () => {
     const test = harness(tools().fetcher, { ...state(), session: null as unknown as BridgeState["session"] });
     expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(503);
