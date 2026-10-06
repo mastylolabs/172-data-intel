@@ -62,6 +62,7 @@ describe("v2 durable session state", () => {
       publication_id: null,
     });
     expect(beginJob(finished, job()).kind).toBe("replay");
+    expect(beginJob(finished, job({ request_id: "33333333-3333-4333-8333-333333333333" })).kind).toBe("new");
     expect(beginJob(finished, job({ input_sha256: "b".repeat(64) }))).toEqual({
       kind: "conflict",
       code: "request_conflict",

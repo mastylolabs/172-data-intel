@@ -143,7 +143,12 @@ export function selectSource(state: SessionStateV2, source: SourceV2): SessionSt
 
 export function resetSession(state: SessionStateV2, now = new Date()): SessionStateV2 {
   const next = initialSessionState(now);
-  return { ...next, generation: state.generation + 1, cancel_epoch: state.cancel_epoch + 1 };
+  return {
+    ...next,
+    revision: state.revision + 1,
+    generation: state.generation + 1,
+    cancel_epoch: state.cancel_epoch + 1,
+  };
 }
 
 export function beginJob(state: SessionStateV2, job: JobV2): SessionOutcome {
@@ -154,7 +159,17 @@ export function beginJob(state: SessionStateV2, job: JobV2): SessionOutcome {
       ? { kind: "replay", entry: prior }
       : { kind: "conflict", code: "request_conflict" };
   }
-  if (state.active_job !== null) return { kind: "busy", code: "request_conflict" };
+  const terminal = new Set([
+    "completed",
+    "awaiting_clarification",
+    "failed",
+    "interrupted",
+    "cancelled",
+    "budget_exhausted",
+  ]);
+  if (state.active_job !== null && !terminal.has(state.active_job.phase)) {
+    return { kind: "busy", code: "request_conflict" };
+  }
   return { kind: "new", job };
 }
 
