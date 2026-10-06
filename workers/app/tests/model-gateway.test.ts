@@ -81,6 +81,10 @@ describe("bounded Workers AI planner gateway", () => {
     const quota = fake(null, new Error("daily free allocation secret-token"));
     expect(await runPlanner(quota.env, context(), 100)).toEqual({ kind: "failure", code: "model_quota", status: 429, provider_reason: "daily_free_allocation", automatic_retry: false });
     expect(quota.calls).toHaveLength(1);
+    const codeOnly = fake(null, Object.assign(new Error("AI provider refused"), { code: 4006 }));
+    expect(await runPlanner(codeOnly.env, context(), 100)).toMatchObject({ code: "model_quota", status: 429, provider_reason: "daily_free_allocation", automatic_retry: false });
+    const statusOnly = fake(null, Object.assign(new Error("upstream refusal"), { http_status: 429 }));
+    expect(await runPlanner(statusOnly.env, context(), 100)).toMatchObject({ code: "model_quota", status: 429, automatic_retry: false });
     const capacity = fake(null, new Error("3040 capacity"));
     expect(await runPlanner(capacity.env, context(), 100)).toMatchObject({ code: "model_unavailable", status: 503, provider_reason: "out_of_capacity", automatic_retry: false });
     const timeout: ModelEnv = { AI: { run: async () => new Promise(() => undefined) } } as unknown as ModelEnv;
