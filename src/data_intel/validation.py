@@ -24,7 +24,7 @@ class _Value(BaseModel):
 
 
 class ValidationBoundaryError(ValueError):
-    """Safe batch refusal."""
+    """Safe boundary refusal."""
 
 
 class QueryResultV2(QueryResult):
@@ -264,18 +264,3 @@ def validate_numeric(
     )
     report_hash = _digest(report.model_dump(mode="json", exclude={"report_sha256"}))
     return report.model_copy(update={"report_sha256": report_hash})
-
-
-def validate_numeric_batch(
-    claims: tuple[NumericalClaimV2, ...], evidence: NumericEvidenceV2
-) -> tuple[NumericalCheckReportV2, ...]:
-    if len(claims) > 12:
-        raise ValidationBoundaryError("result_limit")
-    reports = tuple(validate_numeric(claim, evidence) for claim in claims)
-    content = {
-        "claims": [c.model_dump(mode="json") for c in claims],
-        "reports": [r.model_dump(mode="json") for r in reports],
-    }
-    if len(_bytes(content)) > 8192:
-        raise ValidationBoundaryError("result_limit")
-    return reports

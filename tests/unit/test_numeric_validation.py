@@ -4,6 +4,9 @@ import json
 from hashlib import sha256
 from uuid import UUID
 
+import pytest
+from pydantic import ValidationError
+
 from data_intel.contracts import SqlIntent
 from data_intel.query_engine import SQLiteQueryEngine
 from data_intel.sales_demo import DEMO_SOURCE
@@ -114,3 +117,15 @@ def test_arithmetic_non_exact_and_unsupported_rank() -> None:
     assert validate_numeric(sum_claim, evidence).overall == "pass"
     rank = base.model_copy(update={"claim_type": "ranking"})
     assert validate_numeric(rank, evidence).overall == "unsupported"
+
+
+def test_unverified_receipt_scope_and_id_refuse() -> None:
+    evidence = _query("SELECT count(*) AS n FROM main.sales")
+    for scope in (
+        evidence.scope.model_copy(update={"period": {"start": "2026-01-01", "end": "2026-02-01"}}),
+        evidence.scope.model_copy(update={"unit": "USD_cents"}),
+    ):
+        with pytest.raises(ValidationError):
+            NumericEvidenceV2.model_validate(evidence.__dict__ | {"scope": scope})
+    with pytest.raises(ValidationError, match="result_ref_mismatch"):
+        NumericEvidenceV2.model_validate(evidence.__dict__ | {"receipt_id": ID})
