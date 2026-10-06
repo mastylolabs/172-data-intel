@@ -17,10 +17,10 @@ The hardest problem was preventing one exact support quote from being treated as
 ## Verification
 
 - `make gate`: PASS; 624 Python tests, 40 Vitest tests, Ruff, mypy, TypeScript and Radon (average A; no C-or-worse functions).
-- `make coverage`: PASS; 1,551 Python statements, 438 branches, 93% total branch-aware coverage. `citation_validation.py`: 92% (30 branches, 4 partial branches). Remaining gaps include malformed DTO branches, a few safe failure branches and the unimplemented private service/runtime consumers.
+- `make coverage`: PASS; 1,551 Python statements, 438 branches, 93% total branch-aware coverage. `citation_validation.py`: 92% (30 branches, 4 partial branches). Measured gaps include malformed DTO branches and a few safe failure branches. The private v2 service/runtime consumers are deferred capabilities with no implemented code to measure.
 - PR #42 exact-head QA: PASS at `c7900a2`; exact-head independent review: APPROVED; configured provider review and approval: PASS; two provider threads resolved; guards passed before merge.
 - Integration/deployed checks: real local `search_support` receipts and mutation probes passed. No P6 private v2 route, Agent claim binding, live model call, or deployed citation validation was run; those are downstream acceptance work.
 
 ## Next milestone
 
-M3-P7 should add the private v2 service envelopes and consumer parity for catalog, profile, query, search, and numerical/citation validation while preserving all v1 routes and existing deployments. It must prove source/runtime/hash/job bindings and refuse malformed, oversized, cross-version, and public requests before M4 Agent orchestration.
+M3-P7 should add the private v2 service envelopes and consumer parity for catalog, profile, query, search, and numerical/citation validation while preserving all v1 routes and existing deployments. It must prove source/runtime/hash/job bindings and refuse malformed, oversized, cross-version, and public requests before M4 Agent orchestration. No new user decision is needed: the existing full GO authorizes this next bounded milestone, subject to the same independent QA, provider review and guarded merge requirements.
