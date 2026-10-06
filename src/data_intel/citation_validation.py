@@ -110,7 +110,7 @@ _CAVEAT = re.compile(
 )
 _TARGETED = re.compile(
     r"(?:one|a|the|this|another) returned (?:message|example|hit)"
-    r"(?: (?:mentions?|contains?|describes?|reports?|says?|shows?|includes?) [^.;!?\n]+)?"
+    r"(?: (?:mentions?|contains?) [a-z][a-z0-9_-]{0,63})?"
     r"[.!?]?|"
     r"this example (?:cannot|can't|does not|do not) "
     r"(?:establish|prove|show|measure|infer) "

@@ -147,6 +147,10 @@ def test_quote_bytes_case_and_whitespace_are_exact() -> None:
         "The export issue occurred in every ticket.",
         "One returned message mentions exports. Export complaints doubled.",
         "One returned message proves complaints doubled.",
+        "One returned message shows complaints doubled this month.",
+        "One returned message shows that every user complained.",
+        "One returned message shows that no ticket mentions exports.",
+        "One returned message mentions complaints doubled this month.",
     ],
 )
 def test_targeted_quote_cannot_prove_corpus_claims(assertion: str) -> None:
