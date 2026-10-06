@@ -147,6 +147,8 @@ export interface EvidenceResult {
   payload_sha256: string;
   source: Source;
   kind: z.infer<typeof mode>;
+  matched_count: number;
+  scope: string;
 }
 export interface EvidenceHit {
   result_id: string;
@@ -179,15 +181,12 @@ function checkEvidence(claim: CandidateClaim, candidate: GroundedCandidate, cont
   const evidence = claim.evidence;
   if (evidence.type === "calculation") {
     const calculation = context.calculations.find((item) => item.calculation_id === evidence.calculation_id);
-    const sameInputs = calculation !== undefined && new Set(evidence.result_ids).size === evidence.result_ids.length &&
-      new Set(calculation.result_ids).size === calculation.result_ids.length && calculation.result_ids.length === evidence.result_ids.length && calculation.result_ids.every((id) => evidence.result_ids.includes(id));
-    const exactReceipts = calculation !== undefined && calculation.input_receipts.length === calculation.result_ids.length &&
-      new Set(calculation.input_receipts.map((item) => item.receipt_id)).size === calculation.input_receipts.length && calculation.input_receipts.every((item) => calculation.result_ids.includes(item.receipt_id));
+    const sameInputs = calculation !== undefined && new Set(evidence.result_ids).size === evidence.result_ids.length && new Set(calculation.result_ids).size === calculation.result_ids.length && calculation.result_ids.length === evidence.result_ids.length && calculation.result_ids.every((id) => evidence.result_ids.includes(id));
+    const exactReceipts = calculation !== undefined && calculation.input_receipts.length === calculation.result_ids.length && new Set(calculation.input_receipts.map((item) => item.receipt_id)).size === calculation.input_receipts.length && calculation.input_receipts.every((item) => calculation.result_ids.includes(item.receipt_id));
     const boundInputs = evidence.result_ids.every((id) => {
       const result = context.results.find((item) => item.receipt_id === id);
       const receipt = calculation?.input_receipts.find((item) => item.receipt_id === id);
-      return result !== undefined && sameSource(result.source, candidate.source) && receipt !== undefined &&
-        receipt.payload_sha256 === result.payload_sha256 && sameSource(receipt.source, result.source);
+      return result !== undefined && sameSource(result.source, candidate.source) && receipt !== undefined && receipt.payload_sha256 === result.payload_sha256 && sameSource(receipt.source, result.source);
     });
     if (calculation === undefined || !sameSource(calculation.source, candidate.source) || !sameInputs || !exactReceipts || !boundInputs ||
       evidence.value !== calculation.value || evidence.unit !== calculation.unit ||
@@ -203,6 +202,7 @@ function checkEvidence(claim: CandidateClaim, candidate: GroundedCandidate, cont
   }
   if ("source" in evidence && !sameSource(evidence.source, candidate.source)) issues.push("evidence_source_mismatch");
   if ("payload_sha256" in evidence && evidence.payload_sha256 !== result.payload_sha256) issues.push("result_hash_mismatch");
+  if (claim.kind === "statement" && claim.text === limitationNoHit && (result.kind !== "search" || result.matched_count !== 0 || result.scope.length === 0 || context.hits.some((hit) => hit.result_id === result.receipt_id))) issues.push("no_hit_scope_mismatch");
   if (evidence.type === "citation") {
     const hit = context.hits.find((item) => item.result_id === evidence.result_id && item.message_id === evidence.message_id);
     if (result.kind !== "search" || hit === undefined || !hit.quote.includes(evidence.quote)) issues.push("citation_mismatch");
