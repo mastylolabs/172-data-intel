@@ -28,9 +28,16 @@ async function queryResult(job: string, run = job): Promise<unknown> {
 const idleAI = { run: async () => ({ response: "{}" }) } as unknown as Env["AI"];
 function agentBinding(admitted = true): Fetcher { return { fetch: async () => Response.json({ version: "1", admitted }) } as unknown as Fetcher; }
 function env(fetch: Fetcher, AI: Env["AI"] = idleAI, AGENT: Fetcher = agentBinding(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): Env { return { TOOLS: fetch, AI, AGENT, PLANNER_BUDGET_TOKEN: "p".repeat(32), RUNTIME_MODE: "local", AppAgent: {} as Env["AppAgent"], ...runtimeConfig }; }
-function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 }; }
+function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [], planner: null, publication: null, model_calls: 0 }; }
 function harness(fetch: Fetcher, initial = state(), AI: Env["AI"] = idleAI, AGENT: Fetcher = agentBinding(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): { agent: AppAgent; jobs: Promise<unknown>[]; state: () => BridgeState } { const jobs: Promise<unknown>[] = []; const agent = new AppAgent({ waitUntil: (promise: Promise<unknown>) => jobs.push(promise) } as never, env(fetch, AI, AGENT, runtimeConfig)); (agent as unknown as { state: BridgeState }).state = initial; return { agent, jobs, state: () => (agent as unknown as { state: BridgeState }).state }; }
 function model(value: unknown): Env["AI"] { return { run: async () => ({ response: JSON.stringify(value) }) } as unknown as Env["AI"]; }
+function publishingModel(): Env["AI"] { let calls = 0; return { run: async (_model: string, input: unknown) => {
+  if (calls++ === 0) return { response: JSON.stringify(planned) };
+  const candidate = JSON.parse((input as { messages: { content: string }[] }).messages[1].content).candidate as unknown;
+  return { response: JSON.stringify({ version: "1", request_id: id, overall: "pass", deterministic_pass: true,
+    candidate_sha256: await payloadSha256(candidate), validator_call_id: "22222222-2222-4222-8222-222222222222",
+    policy_revision: "m4-validator.v1", claims: [{ claim_id: "answer", disposition: "supported", reason: "evidence" }], summary: "supported" }) };
+} } as unknown as Env["AI"]; }
 const planned = { version: "1", request_id: id, source, status: "plan", mode: "query", sql: "SELECT 1", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
 const clarification = { version: "1", request_id: id, source, status: "clarify", mode: "clarify", sql: null, query: null, channel: null, customer: null, start: null, end: null, clarification: "Which period should I compare?" } as const;
 function post(path: string, body: Record<string, unknown>): Request { return new Request(`https://app.test${path}`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }); }
@@ -41,11 +48,18 @@ describe("native app lifecycle", () => {
     const test = harness(tools().fetcher, state(), model(planned));
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(202);
     await test.jobs[0];
-    expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(1);
+    expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(2);
     expect(Date.parse(test.state().session.active_job!.deadline_at) - Date.parse(test.state().session.active_job!.started_at)).toBe(60_000);
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(200);
     expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id.replaceAll("1", "4") }))).status).toBe(202);
     await test.jobs.at(-1); expect(test.state().planner).toBeNull();
+  });
+  it("executes a numeric plan and persists a validated publication", async () => {
+    const test = harness(tools().fetcher, state(), publishingModel());
+    await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await test.jobs[0];
+    const publication = test.state().publication?.result;
+    expect(publication?.kind).toBe("published");
+    expect(publication?.kind === "published" ? publication.answer.text : "").toBe("1 net_units");
   });
   it("persists clarification and safely classifies quota failures", async () => {
     const clarify = harness(tools().fetcher, state(), model(clarification));
