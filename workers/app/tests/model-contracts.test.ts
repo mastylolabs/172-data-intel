@@ -21,7 +21,7 @@ const support = { version: "1", source_id: "support", snapshot_sha256: "c6365aa7
 const when = "2026-10-06T00:00:00Z";
 const profileProposal = { version: "1", request_id: id, source: sales, status: "plan", mode: "profile", sql: null, query: null, channel: null, customer: null, start: null, end: null, clarification: null };
 const profileCandidate = { version: "1", request_id: id, source: sales, mode: "profile", text: "Net sales are 395000 USD cents.", claims: [{ claim_id: "amount", kind: "numeric", text: "Net sales are 395000 USD cents.", value: "395000", unit: "USD_cents", evidence: { type: "calculation", calculation_id: calcId, result_ids: [id], value: "395000", unit: "USD_cents" } }], limitations: [], created_at: when };
-const salesContext: EvidenceContext = { results: [{ receipt_id: id, payload_sha256: hash, source: sales, kind: "profile" }], calculations: [{ calculation_id: calcId, result_ids: [id], source: sales, value: "395000", unit: "USD_cents" }], hits: [] };
+const salesContext: EvidenceContext = { results: [{ receipt_id: id, payload_sha256: hash, source: sales, kind: "profile" }], calculations: [{ calculation_id: calcId, result_ids: [id], source: sales, value: "395000", unit: "USD_cents", input_receipts: [{ receipt_id: id, payload_sha256: hash, source: sales }] }], hits: [] };
 const supportProposal = { version: "1", request_id: id, source: support, status: "plan", mode: "search", sql: null, query: "export", channel: null, customer: null, start: null, end: null, clarification: null };
 const supportCandidate = { version: "1", request_id: id, source: support, mode: "search", text: "A returned message reports an export failure.", claims: [{ claim_id: "message", kind: "citation", text: "A returned message reports an export failure.", evidence: { type: "citation", result_id: id, message_id: "M001", quote: "Export failed" } }], limitations: [...TARGETED_LIMITATIONS], created_at: when };
 const supportContext: EvidenceContext = { results: [{ receipt_id: id, payload_sha256: hash, source: support, kind: "search" }], calculations: [], hits: [{ result_id: id, message_id: "M001", quote: "Customer says: Export failed" }] };
@@ -67,9 +67,11 @@ describe("model and publication contracts", () => {
     const missing = { ...supportCandidate, limitations: [] };
     const broad = { ...supportCandidate, text: "This proves whole-corpus prevalence.", claims: [{ ...supportCandidate.claims[0], text: "This proves prevalence." }] };
     const trend = { ...supportCandidate, text: "This trend is representative.", claims: [{ ...supportCandidate.claims[0], text: "This trend is representative." }] };
+    const absence = { ...supportCandidate, text: "No customer reported an export failure.", claims: [{ ...supportCandidate.claims[0], text: "No customer reported an export failure." }] };
     expect(validateCandidate(missing, supportProposal, supportContext).issues).toContain("missing_search_limitations");
     expect(validateCandidate(broad, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
     expect(validateCandidate(trend, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
+    expect(validateCandidate(absence, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
   });
 
   it("returns clarification without publishing and rejects validator request mismatch", async () => {
@@ -84,11 +86,13 @@ describe("model and publication contracts", () => {
     expect(validateCandidate(candidate, profileProposal, context).ok).toBe(true);
     expect(validateCandidate({ ...candidate, claims: [{ ...candidate.claims[0], evidence: { ...candidate.claims[0].evidence, value: "1" } }] }, profileProposal, context).ok).toBe(false);
     expect(validateCandidate({ ...candidate, claims: [{ ...candidate.claims[0], evidence: { ...candidate.claims[0].evidence, result_ids: [answerId] } }] }, profileProposal, context).ok).toBe(false);
+    const alteredInput = { ...salesContext, calculations: [{ ...salesContext.calculations[0], input_receipts: [{ receipt_id: id, payload_sha256: "b".repeat(64), source: sales }] }] };
+    expect(validateCandidate(candidate, profileProposal, alteredInput).ok).toBe(false);
   });
 
   it("rejects numeric support claims even when routed through a calculation", () => {
     const candidate = { ...supportCandidate, claims: [{ claim_id: "count", kind: "numeric", text: "There are 1 messages.", value: "1", unit: "net_units", evidence: { type: "calculation", calculation_id: calcId, result_ids: [id], value: "1", unit: "net_units" } }] };
-    const context: EvidenceContext = { ...supportContext, calculations: [{ calculation_id: calcId, result_ids: [id], source: support, value: "1", unit: "net_units" }] };
+    const context: EvidenceContext = { ...supportContext, calculations: [{ calculation_id: calcId, result_ids: [id], source: support, value: "1", unit: "net_units", input_receipts: [{ receipt_id: id, payload_sha256: hash, source: support }] }] };
     expect(validateCandidate(candidate, supportProposal, context).issues).toContain("unsupported_search_claim");
   });
 

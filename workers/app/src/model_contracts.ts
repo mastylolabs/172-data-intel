@@ -161,6 +161,7 @@ export interface EvidenceContext {
     source: Source;
     value: string;
     unit: z.infer<typeof unit>;
+    input_receipts: readonly Pick<EvidenceResult, "receipt_id" | "payload_sha256" | "source">[];
   }[];
   hits: readonly EvidenceHit[];
 }
@@ -180,8 +181,13 @@ function checkEvidence(claim: CandidateClaim, candidate: GroundedCandidate, cont
     const calculation = context.calculations.find((item) => item.calculation_id === evidence.calculation_id);
     const sameInputs = calculation !== undefined && calculation.result_ids.length === evidence.result_ids.length &&
       calculation.result_ids.every((id) => evidence.result_ids.includes(id));
-    const knownInputs = evidence.result_ids.every((id) => context.results.some((result) => result.receipt_id === id));
-    if (calculation === undefined || !sameSource(calculation.source, candidate.source) || !sameInputs || !knownInputs ||
+    const boundInputs = evidence.result_ids.every((id) => {
+      const result = context.results.find((item) => item.receipt_id === id);
+      const receipt = calculation?.input_receipts.find((item) => item.receipt_id === id);
+      return result !== undefined && sameSource(result.source, candidate.source) && receipt !== undefined &&
+        receipt.payload_sha256 === result.payload_sha256 && sameSource(receipt.source, result.source);
+    });
+    if (calculation === undefined || !sameSource(calculation.source, candidate.source) || !sameInputs || !boundInputs ||
       evidence.value !== calculation.value || evidence.unit !== calculation.unit ||
       (claim.kind === "numeric" && (claim.value !== evidence.value || claim.unit !== evidence.unit))) {
       issues.push("unknown_calculation");
@@ -221,9 +227,9 @@ export function validateCandidate(
   if (value.mode === "search" && value.claims.some((claim) => claim.kind !== "citation")) {
     issues.push("unsupported_search_claim");
   }
-  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority|trend|every|all|none|most|rate|percentage|percent|\bno\s+(?:messages?|tickets?|issues?)\s+(?:exist|occur|match|were found))/i.test(
-    [value.text, ...value.claims.map((claim) => claim.text)].join(" "),
-  )) {
+  const searchText = [value.text, ...value.claims.map((claim) => claim.text)].join(" ");
+  const scopedNoHit = /no\s+(?:matching\s+)?messages?\s+(?:were\s+)?found\s+in\s+the\s+declared\s+filtered\s+scope/i.test(value.text);
+  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority|trend|every|all|none|most|rate|percentage|percent|\bno\b|\bnobody\b|\bnothing\b)/i.test(searchText) && !scopedNoHit) {
     issues.push("unsupported_search_claim");
   }
   for (const claim of value.claims) checkEvidence(claim, value, context, issues);
