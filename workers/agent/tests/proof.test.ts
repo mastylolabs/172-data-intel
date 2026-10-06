@@ -50,6 +50,7 @@ function setup() {
   const lookup = vi.fn((name: string) => name as unknown as DurableObjectId);
   const env = {
     PROOF_TOKEN: "t".repeat(32),
+    PLANNER_BUDGET_TOKEN: "p".repeat(32),
     RUNTIME_MODE: "deployed",
     BUILD_REVISION: "b".repeat(40),
     CF_VERSION_METADATA: { id: "23456789-1234-4234-8234-123456789abc" },
@@ -75,6 +76,14 @@ function sessionStorage(agent: InstanceType<typeof ProofAgent>): {
   return (agent as unknown as { ctx: { storage: ReturnType<typeof sessionStorage> } }).ctx.storage;
 }
 describe("restricted native proof bridge", () => {
+  it("keeps planner budget admission private", async () => {
+    const { env, budgetFetch } = setup();
+    const allowed = new Request("https://proof.example/internal/planner-budget", { method: "POST", headers: { authorization: `Bearer ${"p".repeat(32)}` }, body: '{"version":"1"}' });
+    expect((await worker.fetch(allowed, env)).status).toBe(200);
+    const denied = new Request("https://proof.example/internal/planner-budget", { method: "POST", headers: { authorization: "Bearer wrong" }, body: '{"version":"1"}' });
+    expect((await worker.fetch(denied, env)).status).toBe(403);
+    expect(budgetFetch).toHaveBeenCalledTimes(1);
+  });
   it("denies auth, public routes, foreign origins, upgrades and wrong methods before lookup", async () => {
     const { env, lookup } = setup();
     for (const [r, status] of [
