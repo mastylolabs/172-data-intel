@@ -44,12 +44,16 @@ describe("native app lifecycle", () => {
     expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(1);
     expect(Date.parse(test.state().session.active_job!.deadline_at) - Date.parse(test.state().session.active_job!.started_at)).toBe(60_000);
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(200);
+    expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id.replaceAll("1", "4") }))).status).toBe(202);
+    await test.jobs.at(-1); expect(test.state().planner).toBeNull();
   });
   it("persists clarification and safely classifies quota failures", async () => {
     const clarify = harness(tools().fetcher, state(), model(clarification));
     await clarify.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "compare periods" })); await clarify.jobs[0];
     expect(clarify.state().session.active_job?.phase).toBe("awaiting_clarification"); expect(clarify.state().planner?.result.kind).toBe("clarification");
     expect(clarify.state().session.active_job?.clarification).toMatchObject({ question: clarification.clarification });
+    expect((await clarify.agent.onRequest(post("/api/cancel", { version: "2" }))).status).toBe(200);
+    expect(clarify.state().session.active_job?.phase).toBe("awaiting_clarification");
     const quota = harness(tools().fetcher, state(), { run: async () => { throw Object.assign(new Error("quota"), { code: 4006 }); } } as unknown as Env["AI"]);
     await quota.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await quota.jobs[0];
     expect(quota.state().planner?.result).toMatchObject({ kind: "failure", code: "model_quota" });

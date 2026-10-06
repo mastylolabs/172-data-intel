@@ -150,7 +150,7 @@ function budgetPlannerState(job: JobV2): PlannerState {
 function expiredSession(state: SessionStateV2): SessionStateV2 {
   const renewed = resetSession(state);
   const active = state.active_job;
-  if (active === null || ["completed", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(active.phase)) {
+  if (active === null || ["completed", "awaiting_clarification", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(active.phase)) {
     return parseSessionState({ ...renewed, expires_at: state.expires_at });
   }
   return parseSessionState({ ...renewed, expires_at: state.expires_at, active_job: {
@@ -203,7 +203,7 @@ function sameSource(left: Source, right: Source): boolean {
 }
 function reconcileDeadline(state: BridgeState): BridgeState {
   const active = state.session.active_job;
-  if (active === null || ["completed", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(active.phase) ||
+  if (active === null || ["completed", "awaiting_clarification", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(active.phase) ||
     Date.parse(active.deadline_at) > Date.now()) return state;
   try {
     const session = finishJob(state.session, active.job_id, active.generation, active.cancel_epoch,
@@ -309,11 +309,11 @@ export class AppAgent extends Agent<Env, BridgeState> {
     if (outcome.kind === "replay") {
       const owned = state.outcomes.find((item) => item.request_id === job.request_id && item.input_sha256 === hash);
       if (owned !== undefined) return json(owned.snapshot);
-      if (state.session.active_job?.request_id === job.request_id && !["completed", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(state.session.active_job.phase)) return json(publicState(state), 202);
+      if (state.session.active_job?.request_id === job.request_id && !["completed", "awaiting_clarification", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(state.session.active_job.phase)) return json(publicState(state), 202);
       throw new BridgeError("request_outcome_unavailable", 409);
     }
     if (outcome.kind !== "new") throw new BridgeError(outcome.code, 409);
-    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null });
+    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null, planner: null });
     this.ctx.waitUntil(this.complete(job, request));
     return json(publicState(this.state), 202);
   }
@@ -357,7 +357,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
       }
       if (path === "/api/cancel" && request.method === "POST") {
         emptyBody.parse(await readJson(request, 1024));
-        if (state.session.active_job === null || ["completed", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(state.session.active_job.phase)) return json(publicState(state));
+        if (state.session.active_job === null || ["completed", "awaiting_clarification", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(state.session.active_job.phase)) return json(publicState(state));
         const canceled = cancelJob(state.session);
         if (canceled.active_job) {
           const done = finishJob(canceled, canceled.active_job.job_id, canceled.active_job.generation, canceled.active_job.cancel_epoch, { phase: "cancelled", error: null });
