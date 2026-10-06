@@ -51,9 +51,10 @@ function buildQuery(proposal: z.infer<typeof analystProposal>, receipt: Envelope
   if (cell.type !== "integer") return null;
   const value = cell.value;
   const semantics = query.data.actual_sql.trim();
-  const measure = /^select\s+sum\s*\(\s*(units|revenue_cents)\s*\)(?:\s+as\s+[a-z_]\w*)?\s+from\s+(?:main\.)?sales$/iu.exec(semantics);
-  if (measure === null) return null;
-  const unit = measure[1].toLowerCase() === "revenue_cents" ? "USD_cents" as const : "net_units" as const;
+  const units = /^select\s+sum\s*\(\s*units\s*\)\s+as\s+units\s+from\s+(?:main\.)?sales$/iu.test(semantics);
+  const cents = /^select\s+sum\s*\(\s*revenue_cents\s*\)\s+as\s+revenue_cents\s+from\s+(?:main\.)?sales$/iu.test(semantics);
+  if (units === cents) return null;
+  const unit = units ? "net_units" as const : "USD_cents" as const;
   const text = `${value} ${unit === "USD_cents" ? "USD cents" : "net_units"}`;
   const evidence = result(receipt, "query", query.data.row_count);
   const calculation = { calculation_id: crypto.randomUUID(), result_ids: [evidence.receipt_id], source: proposal.source,

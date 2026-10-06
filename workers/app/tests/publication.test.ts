@@ -34,6 +34,7 @@ describe("bounded publication", () => {
       expect(built?.candidate.claims[0]).toMatchObject({ kind: "numeric", unit });
     }
     expect(buildPublication(salesProposal, await queryEnvelope("units", "SELECT COUNT(*) AS units"))).toBeNull();
+    expect(buildPublication({ ...salesProposal, sql: "SELECT SUM(units) AS revenue_cents FROM sales" }, await queryEnvelope("units", "SELECT SUM(units) AS revenue_cents FROM sales"))).toBeNull();
     expect(buildPublication(salesProposal, await queryEnvelope("value", "SELECT 7"))).toBeNull();
     for (const sql of ["SELECT SUM(net_units) + 1 AS net_units FROM sales", "SELECT SUM(net_units) AS net_units FROM sales WHERE region = 'east'", "SELECT SUM(net_units) OVER () AS net_units FROM sales", "SELECT SUM(net_units) AS revenue_cents FROM sales"]) expect(buildPublication({ ...salesProposal, sql }, await queryEnvelope("net_units", sql))).toBeNull();
   });
