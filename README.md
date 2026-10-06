@@ -74,6 +74,14 @@ and does not register the demo with the existing proof query engine or Agent.
 uv run python -c 'from data_intel.sales_demo import load_sales_demo; print(len(load_sales_demo().rows))'
 ```
 
+M3-P2a adds the strict frozen `DataProfileV2` sales receipt models in
+`profile_models.py` and `canonical_profile_json()`. Counts are strict integers
+from 0–256; exact unit/cents statistics are canonical signed-int64 decimal strings.
+The complete receipt serializes as key-sorted UTF-8 JSON and refuses over 4,096
+bytes without trimming. Schema acceptance and serialization do not authenticate
+source bytes or compute statistics. Whole-source profiling and deadline checks
+remain the next bounded slice; no new query capability or service route is added.
+
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
 then installs the private read-only, authorizer, limit and progress controls. Its

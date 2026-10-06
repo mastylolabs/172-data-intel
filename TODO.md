@@ -33,10 +33,11 @@
   bounded Llama access preflight failed with daily free allocation rejection; real
   AI proof remains pending. Continue independent work from stable merged contracts;
   no billing change or false live-success claim.
-- M3 active: the frozen analytical source contracts are merged. P1 adds the
-  distinct 24-row sales-demo fixture and strict immutable loading only; complete
-  independent QA/review and guarded merge before starting dependent profiling
-  and explicit generic-engine integration. Support loading/retrieval and typed
+- M3 active: P1's distinct 24-row sales-demo fixture and strict immutable loader
+  are reviewed and merged. P2a adds strict sales profile receipt models and
+  bounded canonical serialization; obtain independent QA/review and guarded
+  merge before P2b's deterministic whole-source profile and deadline checks.
+  Explicit generic-engine integration, support loading/retrieval and typed
   deterministic validation remain later bounded slices.
 - M4–M5, planned: real SQL/retrieval and
   deterministic validation; independently validated durable conversations;
