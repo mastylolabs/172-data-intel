@@ -1,10 +1,14 @@
 import { z } from "zod";
-import { supportedClaims, unicode } from "./policy";
+import { payloadSha256, supportedClaims, unicode } from "./policy";
 import { approvedSource, type Source } from "./contracts";
 
 const uuid = z.uuid().refine((value) => value === value.toLowerCase());
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const integerText = z.string().regex(/^(?:0|-?[1-9][0-9]*)$/);
+const integerText = z.string().regex(/^(?:0|-?[1-9][0-9]*)$/).refine((value) => {
+  if (value.length > 20) return false;
+  const integer = BigInt(value);
+  return integer >= -(2n ** 63n) && integer <= 2n ** 63n - 1n;
+});
 const text = (maximum: number): z.ZodType<string> => z.string().refine(
   (value) => unicode(value) && !/[\p{Cc}\p{Cf}]/u.test(value) &&
     value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= maximum,
@@ -78,7 +82,7 @@ const numericClaim = z.strictObject({
   text: text(512),
   value: integerText,
   unit,
-  evidence: z.union([resultEvidence, calculationEvidence]),
+  evidence: calculationEvidence,
 });
 const citationClaim = z.strictObject({
   claim_id: claimId,
@@ -117,6 +121,9 @@ export const validatorVerdict = z.strictObject({
   request_id: uuid,
   overall: z.enum(["pass", "fail", "needs_clarification"]),
   deterministic_pass: z.boolean(),
+  candidate_sha256: digest,
+  validator_call_id: uuid,
+  policy_revision: z.literal("m4-validator.v1"),
   claims: z.array(verdictClaim).max(12),
   summary: text(512),
 });
@@ -148,7 +155,13 @@ export interface EvidenceHit {
 }
 export interface EvidenceContext {
   results: readonly EvidenceResult[];
-  calculations: readonly { calculation_id: string; result_ids: readonly string[]; source: Source; value: string }[];
+  calculations: readonly {
+    calculation_id: string;
+    result_ids: readonly string[];
+    source: Source;
+    value: string;
+    unit: z.infer<typeof unit>;
+  }[];
   hits: readonly EvidenceHit[];
 }
 export type CandidateCheck = { ok: boolean; issues: readonly string[] };
@@ -165,8 +178,12 @@ function checkEvidence(claim: CandidateClaim, candidate: GroundedCandidate, cont
   const evidence = claim.evidence;
   if (evidence.type === "calculation") {
     const calculation = context.calculations.find((item) => item.calculation_id === evidence.calculation_id);
-    if (calculation === undefined || !sameSource(calculation.source, candidate.source) ||
-      evidence.result_ids.some((id) => !calculation.result_ids.includes(id)) || evidence.value !== calculation.value) {
+    const sameInputs = calculation !== undefined && calculation.result_ids.length === evidence.result_ids.length &&
+      calculation.result_ids.every((id) => evidence.result_ids.includes(id));
+    const knownInputs = evidence.result_ids.every((id) => context.results.some((result) => result.receipt_id === id));
+    if (calculation === undefined || !sameSource(calculation.source, candidate.source) || !sameInputs || !knownInputs ||
+      evidence.value !== calculation.value || evidence.unit !== calculation.unit ||
+      (claim.kind === "numeric" && (claim.value !== evidence.value || claim.unit !== evidence.unit))) {
       issues.push("unknown_calculation");
     }
     return;
@@ -201,7 +218,10 @@ export function validateCandidate(
   if (value.mode === "search" && TARGETED_LIMITATIONS.some((item) => !value.limitations.includes(item))) {
     issues.push("missing_search_limitations");
   }
-  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority)/i.test(
+  if (value.mode === "search" && value.claims.some((claim) => claim.kind !== "citation")) {
+    issues.push("unsupported_search_claim");
+  }
+  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority|trend|every|all|none|most|rate|percentage|percent|\bno\s+(?:messages?|tickets?|issues?)\s+(?:exist|occur|match|were found))/i.test(
     [value.text, ...value.claims.map((claim) => claim.text)].join(" "),
   )) {
     issues.push("unsupported_search_claim");
@@ -226,14 +246,14 @@ export type PublicationOutcome =
   | { kind: "refusal"; code: "candidate_invalid" | "deterministic_failed" | "validator_failed" }
   | { kind: "clarification"; question: string };
 
-export function publishAnswer(
+export async function publishAnswer(
   proposalInput: unknown,
   candidateInput: unknown,
   verdictInput: unknown,
   context: EvidenceContext,
   deterministicPassed: boolean,
   answerId: string,
-): PublicationOutcome {
+): Promise<PublicationOutcome> {
   const proposal = analystProposal.safeParse(proposalInput);
   if (!proposal.success) return { kind: "refusal", code: "candidate_invalid" };
   if (proposal.data.status === "clarify") return { kind: "clarification", question: proposal.data.clarification as string };
@@ -243,6 +263,7 @@ export function publishAnswer(
   const verdict = validatorVerdict.safeParse(verdictInput);
   const candidate = groundedCandidate.safeParse(candidateInput);
   if (!verdict.success || !candidate.success || verdict.data.request_id !== candidate.data.request_id ||
+    verdict.data.candidate_sha256 !== await payloadSha256(candidate.data) ||
     !validatorPassed(verdict.data, candidate.data.claims.map((claim) => claim.claim_id), true)) {
     return { kind: "refusal", code: "validator_failed" };
   }
