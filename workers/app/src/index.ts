@@ -8,6 +8,7 @@ import {
 import { runPlanner, type ModelEnv, type PlannerFailure, type PlannerResult } from "./model_gateway";
 import { analystProposal, validateCandidate, type AnalystProposal } from "./model_contracts";
 import { buildEvidence, buildLineage, buildPublication, publicationEvidence, publicationIdentity, publicationLineage, publicationOutcome, publishAnswer, runValidator, type PublicationOutcome } from "./publication";
+import { payloadSha256 } from "./policy";
 import {
   beginJob, cancelJob, finishJob, initialSessionState, parseSessionState, publicSnapshot,
   resetSession, selectSource, storeJob, type JobV2, type SessionStateV2,
@@ -274,7 +275,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
     }
   }
   private async completePublication(job: JobV2, proposal: AnalystProposal, question: string, catalog: z.infer<typeof catalogV2>, profile: z.infer<typeof dataProfileV2> | null): Promise<{ outcome: PublicationOutcome; identity: z.infer<typeof publicationIdentity>; lineage: z.infer<typeof publicationLineage> | null; evidence: z.infer<typeof publicationEvidence> | null } | null> {
-    const identity: z.infer<typeof publicationIdentity> = { publication_id: crypto.randomUUID(), run_id: job.active_run_id ?? crypto.randomUUID(), candidate_sha256: null, plan_sha256: await requestHash(proposal), validator_input_sha256: null, validator_report_sha256: null };
+    const identity: z.infer<typeof publicationIdentity> = { publication_id: crypto.randomUUID(), run_id: job.active_run_id ?? crypto.randomUUID(), candidate_id: null, candidate_sha256: null, plan_sha256: await payloadSha256(proposal), validator_input_sha256: null, validator_report_sha256: null, validator_call_id: null, validator_call: null, model_id: null, prompt_revision: null };
     const refused = (code: "deterministic_failed" | "validator_failed") => ({ outcome: { kind: "refusal" as const, code }, identity, lineage: null, evidence: null });
     if (proposal.mode !== "query" && proposal.mode !== "search") return refused("deterministic_failed");
     const runId = job.active_run_id;
@@ -291,7 +292,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
     const built = buildPublication(proposal, receipt);
     const evidence = built === null ? null : buildEvidence(built.context, receipt, { catalog, profile });
     if (built === null || evidence === null) return refused("deterministic_failed");
-    identity.candidate_sha256 = await requestHash(built.candidate);
+    identity.candidate_id = crypto.randomUUID(); identity.candidate_sha256 = await payloadSha256(built.candidate);
     const deterministic = validateCandidate(built.candidate, proposal, built.context);
     const lineage = await buildLineage(built.context);
     if (!deterministic.ok) return { ...refused("deterministic_failed"), lineage, evidence };
@@ -302,11 +303,13 @@ export class AppAgent extends Agent<Env, BridgeState> {
     current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
     this.setState({ ...current, model_calls: current.model_calls + 1 });
-    const verdict = await runValidator(this.env, { question, proposal, context: built.context, meanings: { catalog, profile }, execution: evidence.execution, candidate: built.candidate, deterministic, job_id: job.job_id, run_id: runId, source: job.source });
+    const verdict = await runValidator(this.env, { question, proposal, context: built.context, meanings: { catalog, profile }, execution: evidence.execution, candidate: built.candidate, deterministic, job_id: job.job_id, run_id: runId, source: job.source, candidate_id: identity.candidate_id });
     current = await validState(this);
     if (!ownsPlannerJob(current, job)) return null;
     identity.validator_input_sha256 = verdict?.validator_input_sha256 ?? null;
-    identity.validator_report_sha256 = verdict === null ? null : await requestHash(verdict);
+    identity.validator_report_sha256 = verdict?.report_sha256 ?? null;
+    identity.validator_call_id = verdict?.validator_call_id ?? null; identity.validator_call = verdict === null ? "failed" : "performed";
+    identity.model_id = verdict?.model_id ?? null; identity.prompt_revision = verdict?.prompt_revision ?? null;
     return { outcome: await publishAnswer(proposal, built.candidate, verdict, built.context, deterministic.ok, identity.publication_id), identity, lineage, evidence };
   }
   private async completePlanner(job: JobV2, question: string): Promise<void> {

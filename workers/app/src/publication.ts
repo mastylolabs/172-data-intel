@@ -14,8 +14,8 @@ const VALIDATOR_MAX_TOKENS = 256;
 const timestamp = (): string => new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(".000Z", "Z");
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const meanings = z.strictObject({ catalog: catalogV2.nullable(), profile: dataProfileV2.nullable() });
-export const publicationIdentity = z.strictObject({ publication_id: z.uuid(), run_id: z.uuid(), candidate_sha256: digest.nullable(), plan_sha256: digest,
-  validator_input_sha256: digest.nullable(), validator_report_sha256: digest.nullable() });
+export const publicationIdentity = z.strictObject({ publication_id: z.uuid(), run_id: z.uuid(), candidate_id: z.uuid().nullable(), candidate_sha256: digest.nullable(), plan_sha256: digest,
+  validator_input_sha256: digest.nullable(), validator_report_sha256: digest.nullable(), validator_call_id: z.uuid().nullable(), validator_call: z.enum(["performed", "failed"]).nullable(), model_id: z.string().max(128).nullable(), prompt_revision: z.string().max(64).nullable() });
 export const publicationLineage = z.strictObject({
   context_sha256: digest, receipt_ids: z.array(z.uuid()).min(1).max(4), calculation_ids: z.array(z.uuid()).max(4),
   hit_refs: z.array(z.string().regex(/^M[0-9]{3}$/)).max(12),
@@ -35,7 +35,7 @@ export const publicationOutcome = z.discriminatedUnion("kind", [
 ]);
 export type ValidatorEnv = { AI: Pick<Ai, "run"> };
 export type PublicationBuild = { candidate: GroundedCandidate; context: EvidenceContext };
-export type ValidatorInput = { question: string; proposal: z.infer<typeof analystProposal>; context: EvidenceContext; meanings: z.infer<typeof meanings>; execution: z.infer<typeof execution>; candidate: GroundedCandidate; deterministic: CandidateCheck; job_id: string; run_id: string; source: GroundedCandidate["source"] };
+export type ValidatorInput = { question: string; proposal: z.infer<typeof analystProposal>; context: EvidenceContext; meanings: z.infer<typeof meanings>; execution: z.infer<typeof execution>; candidate: GroundedCandidate; deterministic: CandidateCheck; job_id: string; run_id: string; source: GroundedCandidate["source"]; candidate_id?: string };
 
 function sourceEqual(left: GroundedCandidate["source"], right: GroundedCandidate["source"]): boolean {
   return left.source_id === right.source_id && left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;
@@ -51,10 +51,9 @@ function buildQuery(proposal: z.infer<typeof analystProposal>, receipt: Envelope
   if (cell.type !== "integer") return null;
   const value = cell.value;
   const semantics = query.data.actual_sql.trim();
-  const units = /^select\s+sum\s*\(\s*net_units\s*\)\s+as\s+net_units\s+from\s+(?:main\.)?sales$/iu.test(semantics);
-  const cents = /^select\s+sum\s*\(\s*revenue_cents\s*\)\s+as\s+revenue_cents\s+from\s+(?:main\.)?sales$/iu.test(semantics);
-  if (units === cents) return null;
-  const unit = units ? "net_units" as const : "USD_cents" as const;
+  const measure = /^select\s+sum\s*\(\s*(units|revenue_cents)\s*\)(?:\s+as\s+[a-z_]\w*)?\s+from\s+(?:main\.)?sales$/iu.exec(semantics);
+  if (measure === null) return null;
+  const unit = measure[1].toLowerCase() === "revenue_cents" ? "USD_cents" as const : "net_units" as const;
   const text = `${value} ${unit === "USD_cents" ? "USD cents" : "net_units"}`;
   const evidence = result(receipt, "query", query.data.row_count);
   const calculation = { calculation_id: crypto.randomUUID(), result_ids: [evidence.receipt_id], source: proposal.source,
@@ -113,12 +112,12 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
   const candidate_sha256 = await payloadSha256(input.candidate);
   const plan_sha256 = await payloadSha256(input.proposal);
   const payload = { version: "1", question: input.question, job_id: input.job_id, run_id: input.run_id, source: input.source, proposal: input.proposal, meanings: input.meanings, evidence_context: input.context, execution_receipt: input.execution,
-    candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
+    candidate_id: input.candidate_id ?? null, candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
   const validator_input_sha256 = await payloadSha256(payload);
   const body = JSON.stringify({ ...payload, validator_input_sha256 });
   const request = { messages: [{ role: "system" as const, content: VALIDATOR }, { role: "user" as const, content: body }],
     response_format: { type: "json_schema" as const, json_schema: { type: "object", additionalProperties: false,
-      properties: { version: { const: "1" }, request_id: { type: "string" }, job_id: { type: "string" }, run_id: { type: "string" }, source: { type: "object", additionalProperties: false, properties: { version: { const: "1" }, source_id: { type: "string" }, snapshot_sha256: { type: "string" }, meaning_revision: { type: "string" } }, required: ["version", "source_id", "snapshot_sha256", "meaning_revision"] }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, candidate_sha256: { type: "string" }, plan_sha256: { type: "string" }, validator_input_sha256: { type: "string" }, validator_call_id: { type: "string" }, policy_revision: { const: "m4-validator.v1" }, claims: { type: "array", maxItems: 12 }, summary: { type: "string", maxLength: 512 } }, required: ["version", "request_id", "job_id", "run_id", "source", "overall", "deterministic_pass", "candidate_sha256", "plan_sha256", "validator_input_sha256", "validator_call_id", "policy_revision", "claims", "summary"] } },
+      properties: { version: { const: "1" }, request_id: { type: "string" }, job_id: { type: "string" }, run_id: { type: "string" }, source: { type: "object", additionalProperties: false, properties: { version: { const: "1" }, source_id: { type: "string" }, snapshot_sha256: { type: "string" }, meaning_revision: { type: "string" } }, required: ["version", "source_id", "snapshot_sha256", "meaning_revision"] }, candidate_id: { type: "string" }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, candidate_sha256: { type: "string" }, plan_sha256: { type: "string" }, validator_input_sha256: { type: "string" }, validator_call_id: { type: "string" }, validator_call: { enum: ["performed", "failed"] }, model_id: { type: "string" }, prompt_revision: { type: "string" }, report_sha256: { type: "string" }, policy_revision: { const: "m4-validator.v1" }, claims: { type: "array", maxItems: 12 }, summary: { type: "string", maxLength: 512 } }, required: ["version", "request_id", "job_id", "run_id", "source", "overall", "deterministic_pass", "candidate_sha256", "plan_sha256", "validator_input_sha256", "validator_call_id", "policy_revision", "claims", "summary"] } },
     max_tokens: VALIDATOR_MAX_TOKENS, temperature: 0 };
   if (new TextEncoder().encode(JSON.stringify(request)).byteLength > VALIDATOR_INPUT_BYTES) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -127,7 +126,8 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
     const raw = await Promise.race([env.AI.run(PLANNER_MODEL, request), timeout]);
     const value = validatorVerdict.safeParse(validatorJson(raw));
     if (!value.success || value.data.request_id !== input.candidate.request_id || value.data.candidate_sha256 !== candidate_sha256 || value.data.plan_sha256 !== plan_sha256 || value.data.validator_input_sha256 !== validator_input_sha256 || value.data.job_id !== input.job_id || value.data.run_id !== input.run_id || !sourceEqual(value.data.source!, input.source)) return null;
-    return value.data;
+    const report = { ...value.data, candidate_id: value.data.candidate_id ?? input.candidate_id ?? input.candidate.request_id, validator_call: value.data.validator_call ?? "performed" as const, model_id: value.data.model_id ?? PLANNER_MODEL, prompt_revision: value.data.prompt_revision ?? "m4-validator.v1" };
+    return { ...report, report_sha256: await payloadSha256(report) };
   } catch { return null; } finally { if (timer !== undefined) clearTimeout(timer); }
 }
 export { publishAnswer, type PublicationOutcome };

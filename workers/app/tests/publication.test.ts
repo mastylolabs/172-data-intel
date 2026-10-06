@@ -11,7 +11,7 @@ const sales = approvedSource.parse({ version: "1", source_id: "sales", snapshot_
 const runtime = { python_version: "3.12.7", sqlite_version: "3.46.1", runtime_mode: "local" as const, build_revision: null, worker_version_id: null, service_contract_revision: "m4-service.v1" as const };
 const queryRuntime = { python_version: runtime.python_version, sqlite_version: runtime.sqlite_version, runtime_mode: "local" as const, build_revision: null, worker_version_id: null };
 const proposal = { version: "1", request_id: id, source: support, status: "plan", mode: "search", sql: null, query: "export", channel: null, customer: null, start: null, end: null, clarification: null } as const;
-const salesProposal = { version: "1", request_id: id, source: sales, status: "plan", mode: "query", sql: "SELECT SUM(net_units) AS net_units FROM sales", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
+const salesProposal = { version: "1", request_id: id, source: sales, status: "plan", mode: "query", sql: "SELECT SUM(units) AS units FROM sales", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
 const queryLimits = { max_sql_bytes: 8000, max_rows: 20, max_columns: 16, max_column_bytes: 64, max_text_bytes: 256, max_result_bytes: 16384, progress_interval: 100, max_progress_callbacks: 500, query_deadline_ms: 250, sqlite_heap_bytes: 8388608, sqlite_limits: { sql_length: 8000, length: 65536, column: 16, expr_depth: 30, compound_select: 8, vdbe_op: 10000, function_arg: 8, attached: 0, like_pattern_length: 128, variable_number: 0, trigger_depth: 0 } };
 function searchEnvelope(hits: unknown[]): Promise<Envelope<unknown>> {
   const payload = { version: "2", source: support, schema_revision: "support-demo.v1", search_policy: "m3-lexical.v1", request: { version: "2", source: support, query: "export", channel: null, customer: null, start: null, end: null, max_hits: 5 }, scanned_count: 16, matched_count: hits.length, returned_count: hits.length, omitted_hit_count: 0, hits, coverage: "targeted_lexical_search", limitations: [...TARGETED_LIMITATIONS], analytical_validated: false };
@@ -28,7 +28,7 @@ async function queryEnvelope(column: string, actual_sql: string): Promise<Envelo
 
 describe("bounded publication", () => {
   it("binds both approved sales units and cents and rejects unknown semantics", async () => {
-    for (const [column, sql, unit] of [["net_units", "SELECT SUM(net_units) AS net_units FROM sales", "net_units"], ["revenue_cents", "SELECT SUM(revenue_cents) AS revenue_cents FROM sales", "USD_cents"]] as const) {
+    for (const [column, sql, unit] of [["units", "SELECT SUM(units) AS units FROM sales", "net_units"], ["revenue_cents", "SELECT SUM(revenue_cents) AS revenue_cents FROM sales", "USD_cents"]] as const) {
       const receipt = await queryEnvelope(column, sql); const built = buildPublication({ ...salesProposal, sql }, receipt);
       expect(buildEvidence(built!.context, receipt)).not.toBeNull();
       expect(built?.candidate.claims[0]).toMatchObject({ kind: "numeric", unit });
