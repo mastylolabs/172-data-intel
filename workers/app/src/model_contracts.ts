@@ -180,11 +180,9 @@ function checkEvidence(claim: CandidateClaim, candidate: GroundedCandidate, cont
   if (evidence.type === "calculation") {
     const calculation = context.calculations.find((item) => item.calculation_id === evidence.calculation_id);
     const sameInputs = calculation !== undefined && new Set(evidence.result_ids).size === evidence.result_ids.length &&
-      new Set(calculation.result_ids).size === calculation.result_ids.length && calculation.result_ids.length === evidence.result_ids.length &&
-      calculation.result_ids.every((id) => evidence.result_ids.includes(id));
+      new Set(calculation.result_ids).size === calculation.result_ids.length && calculation.result_ids.length === evidence.result_ids.length && calculation.result_ids.every((id) => evidence.result_ids.includes(id));
     const exactReceipts = calculation !== undefined && calculation.input_receipts.length === calculation.result_ids.length &&
-      new Set(calculation.input_receipts.map((item) => item.receipt_id)).size === calculation.input_receipts.length &&
-      calculation.input_receipts.every((item) => calculation.result_ids.includes(item.receipt_id));
+      new Set(calculation.input_receipts.map((item) => item.receipt_id)).size === calculation.input_receipts.length && calculation.input_receipts.every((item) => calculation.result_ids.includes(item.receipt_id));
     const boundInputs = evidence.result_ids.every((id) => {
       const result = context.results.find((item) => item.receipt_id === id);
       const receipt = calculation?.input_receipts.find((item) => item.receipt_id === id);
@@ -228,12 +226,15 @@ export function validateCandidate(
   if (value.mode === "search" && TARGETED_LIMITATIONS.some((item) => !value.limitations.includes(item))) {
     issues.push("missing_search_limitations");
   }
-  if (value.mode === "search" && value.claims.some((claim) => claim.kind !== "citation")) {
+  const noHitClaim = (claim: CandidateClaim): boolean => claim.kind === "statement" && claim.text === limitationNoHit && claim.evidence.type === "result";
+  if (value.mode === "search" && value.claims.some((claim) => claim.kind !== "citation" && !noHitClaim(claim))) {
     issues.push("unsupported_search_claim");
   }
-  const scopedNoHit = /(?:no\s+(?:matching\s+)?messages?\s+(?:were\s+)?found|found\s+no\s+matching\s+messages?)\s+in\s+the\s+declared\s+filtered\s+scope/i;
-  const searchText = [value.text.replace(scopedNoHit, ""), ...value.claims.map((claim) => claim.text)].join(" ");
-  if (value.mode === "search" && /(prevalence|whole[- ]corpus|system[- ]wide|absence|majority|trend|every|all|none|most|rate|percentage|percent|\bno\b|\bnobody\b|\bnothing\b|\bzero\s+(?:customers?|messages?|tickets?)\b|\bwithout\s+(?:any\s+)?(?:customers?|messages?|tickets?)\b|\b(?:customers?|messages?|tickets?)\s+(?:frequently|often|usually|commonly)\b)/i.test(searchText)) {
+  const claimsClosed = value.claims.every((claim) => claim.kind === "citation"
+    ? claim.text === `Message ${claim.evidence.message_id}: "${claim.evidence.quote}"` : noHitClaim(claim));
+  const textClosed = value.text === limitationNoHit ? value.claims.length === 1 && noHitClaim(value.claims[0])
+    : value.text === value.claims.map((claim) => claim.text).join(" ");
+  if (value.mode === "search" && (!claimsClosed || !textClosed)) {
     issues.push("unsupported_search_claim");
   }
   for (const claim of value.claims) checkEvidence(claim, value, context, issues);
