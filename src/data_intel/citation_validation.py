@@ -89,10 +89,14 @@ class CitationCheckReportV2(_Value):
 
 
 _COVERAGE = re.compile(
-    r"\b(?:prevalen\w*|trend\w*|majority|most (?:common|frequent|customers|messages)|absence|"
-    r"whole.corpus|entire corpus|all (?:messages|customers)|"
-    r"(?:no|zero)\s+(?:\w+\s+){0,4}(?:messages|customers|complaints)|"
-    r"none of the (?:messages|customers|complaints)|nobody|never)\b",
+    r"\b\d+(?:\.\d+)?\s*%|"
+    r"\b(?:prevalen\w*|trend\w*|majority|most (?:common|frequent|customers|messages)|"
+    r"absence|whole.corpus|entire corpus|nobody|never|"
+    r"\d+(?:\.\d+)?\s*percent(?:age)?|"
+    r"(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+out of\s+"
+    r"(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)|"
+    r"(?:every|each|all|none|no|zero)\s+(?:of\s+the\s+)?"
+    r"(?:\w+\s+){0,4}(?:customers?|messages?|support requests?|complaints?))\b",
     re.I,
 )
 _CAVEAT = re.compile(
@@ -148,7 +152,10 @@ def _check(citation: CitationV2, evidence: CitationEvidenceV2, assertion: str) -
 def validate_citation(
     citation: CitationV2, evidence: CitationEvidenceV2, assertion: str
 ) -> CitationCheckReportV2:
-    """Validate one exact returned quote and its targeted assertion without model calls."""
+    """Validate an assertion supplied by a caller who binds it to citation.claim_id.
+
+    The frozen citation DTO carries the claim ID but no assertion text.
+    """
     if not isinstance(assertion, str) or not 1 <= len(assertion.encode("utf-8")) <= 1024:
         raise CitationBoundaryError("invalid_input")
     input_hash = _digest(

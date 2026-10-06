@@ -57,6 +57,10 @@ def test_exact_substring_and_report_hash_bind_complete_receipt() -> None:
     )
     assert report.report_sha256 == sha256(content.encode()).hexdigest()
     assert report.policy_revision == "m4-citation.v1"
+    assert (
+        report.input_sha256
+        != validate_citation(citation, evidence, "Another example.").input_sha256
+    )
 
 
 def test_foreign_receipts_ids_source_and_scope_refuse() -> None:
@@ -109,6 +113,14 @@ def test_quote_bytes_case_and_whitespace_are_exact() -> None:
         "Export complaints are trending upward.",
         "There are no export complaints in the entire corpus.",
         "There are no export complaints.",
+        "90% of customers have export problems.",
+        "Nine out of ten customers have export problems.",
+        "9 out of 10 support requests mention exports.",
+        "Every customer mentions exports.",
+        "Each support request mentions exports.",
+        "All messages mention exports.",
+        "None of the complaints mention exports.",
+        "No customers mention exports.",
     ],
 )
 def test_targeted_quote_cannot_prove_corpus_claims(assertion: str) -> None:
