@@ -158,6 +158,20 @@ def test_query_route_rejects_source_mismatch_and_keeps_v1_path_separate() -> Non
     assert status == 400 and json.loads(body)["code"] == "invalid_input"
 
 
+def test_query_route_rejects_historical_source_and_input_limits() -> None:
+    from data_intel.sales_demo import DEMO_SOURCE
+    from data_intel.sales_fixture import SALES_SOURCE
+
+    status, body = handle_service_v2("POST", "/v2/query", _query_request(SALES_SOURCE), _runtime())
+    assert status == 409 and json.loads(body)["code"] == "source_mismatch"
+    wire = json.loads(_query_request(DEMO_SOURCE))
+    wire["intent"]["max_rows"] = 21
+    status, body = handle_service_v2("POST", "/v2/query", json.dumps(wire).encode(), _runtime())
+    assert status == 400
+    assert json.loads(body)["code"] == "invalid_input"
+    assert json.loads(body)["stage"] == "input"
+
+
 def test_search_route_returns_exact_targeted_ids_and_quotes() -> None:
     status, body = handle_service_v2(
         "POST", "/v2/search", _search_request(SUPPORT_SOURCE), _runtime()

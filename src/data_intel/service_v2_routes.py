@@ -9,6 +9,7 @@ from data_intel.catalog_v2 import CatalogV2, registered_catalog
 from data_intel.contracts import SourceId, SourceIdentity, SqlIntent
 from data_intel.profile_models import DataProfileV2, canonical_profile_json
 from data_intel.query_engine import QueryFailure, SQLiteQueryEngine
+from data_intel.sales_demo import DEMO_SOURCE
 from data_intel.sales_fixture import FixtureError
 from data_intel.sales_profile import ProfileFailure, profile_sales_demo
 from data_intel.search_models import SearchReceiptV2, SearchRequestV2
@@ -245,8 +246,13 @@ def _query_v2(body: bytes, runtime: RuntimeProvenanceV2) -> tuple[int, bytes]:
         return _error(_validation_error_code(error), "input")
     if request.source.source_id != SourceId.SALES:
         return _error("unsupported_source", "query", request.job_id, request.run_id)
+    if request.source != DEMO_SOURCE:
+        return _error("source_mismatch", "query", request.job_id, request.run_id)
     try:
         legacy = QueryServiceRequest(version="1", job_id=request.job_id, intent=request.intent)
+    except ValidationError:
+        return _error("invalid_input", "input", request.job_id, request.run_id)
+    try:
         result = adapt_query(
             legacy,
             SQLiteQueryEngine(allow_demo_source=True),
