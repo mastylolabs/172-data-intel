@@ -27,9 +27,7 @@ def _runtime(mode: str = "local") -> RuntimeProvenanceV2:
 
 def _request(source: SourceIdentity) -> bytes:
     return (
-        ToolRequestV2(version="2", job_id=JOB, run_id=RUN, receipt_id=RECEIPT, source=source)
-        .model_dump_json()
-        .encode()
+        ToolRequestV2(version="2", job_id=JOB, run_id=RUN, source=source).model_dump_json().encode()
     )
 
 

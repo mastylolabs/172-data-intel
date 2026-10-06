@@ -1,7 +1,7 @@
 """Private v2 catalog and profile adapters over the approved demo sources."""
 
 from typing import Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ValidationError
 
@@ -35,7 +35,6 @@ class ToolRequestV2(V2StrictModel):
     version: Literal["2"]
     job_id: UUID
     run_id: UUID
-    receipt_id: UUID
     source: SourceIdentity
 
 
@@ -112,13 +111,7 @@ def _envelope(
     request: ToolRequestV2 | None,
 ) -> BaseModel:
     identifiers = (
-        (None, None, None)
-        if request is None
-        else (
-            request.job_id,
-            request.run_id,
-            request.receipt_id,
-        )
+        (None, None, None) if request is None else (request.job_id, request.run_id, uuid4())
     )
     if isinstance(payload, CatalogV2):
         return ServiceEnvelopeV2[CatalogV2](
