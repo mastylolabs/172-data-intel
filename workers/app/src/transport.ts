@@ -48,7 +48,7 @@ export const queryRequest = z.strictObject({
 export const searchRequest = z.strictObject({
   version,
   request_id: requestId,
-  query: text(128),
+  query: text(128).refine((value) => { const tokens = value.toLowerCase().match(/[a-z0-9]+/g) ?? []; return tokens.length >= 1 && tokens.length <= 8 && tokens.every((token) => token.length <= 32); }),
   channel: label(64).nullable(),
   customer: label(64).nullable(),
   start: timestamp.nullable(),

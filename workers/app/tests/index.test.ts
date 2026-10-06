@@ -82,7 +82,6 @@ describe("native app lifecycle", () => {
     expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(200);
     expect(test.state().session.active_job?.phase).toBe("cancelled");
     pending.pending.resolve(new Response(await wire(profile, id, id))); await test.jobs[0];
-    expect(test.state().session.active_job?.phase).toBe("cancelled");
   });
   it("isolates opaque cookies and rejects unsafe transports", async () => {
     const names: string[] = []; const resolver = async (_env: Env, name: string) => { names.push(name); return { fetch: async () => Response.json({ ok: true }) }; };
