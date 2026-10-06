@@ -14,7 +14,7 @@ const VALIDATOR_MAX_TOKENS = 512;
 const timestamp = (): string => new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(".000Z", "Z");
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const validatorDecision = z.object({
-  version: z.literal("1"), overall: z.enum(["pass", "fail", "needs_clarification"]), deterministic_pass: z.boolean(),
+  version: z.literal("1"), validator_call_id: z.uuid(), overall: z.enum(["pass", "fail", "needs_clarification"]), deterministic_pass: z.boolean(),
   claims: z.array(z.strictObject({ claim_id: z.string(), disposition: z.enum(["supported", "unsupported", "unclear"]), reason: z.string().max(512) })).min(1).max(12),
   summary: z.string().max(512),
 });
@@ -124,7 +124,7 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
   const requiredClaimIds = input.candidate.claims.map((claim) => claim.claim_id);
   const request = { messages: [{ role: "system" as const, content: VALIDATOR }, { role: "user" as const, content: body }],
     response_format: { type: "json_schema" as const, json_schema: { type: "object", additionalProperties: false,
-      properties: { version: { const: "1" }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, claims: { type: "array", minItems: requiredClaimIds.length, maxItems: requiredClaimIds.length, items: { type: "object", additionalProperties: false, properties: { claim_id: { enum: requiredClaimIds }, disposition: { enum: ["supported", "unsupported", "unclear"] }, reason: { type: "string", maxLength: 512 } }, required: ["claim_id", "disposition", "reason"] } }, summary: { type: "string", maxLength: 512 } }, required: ["version", "overall", "deterministic_pass", "claims", "summary"] } },
+      properties: { version: { const: "1" }, validator_call_id: { const: input.validator_call_id }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, claims: { type: "array", minItems: requiredClaimIds.length, maxItems: requiredClaimIds.length, items: { type: "object", additionalProperties: false, properties: { claim_id: { enum: requiredClaimIds }, disposition: { enum: ["supported", "unsupported", "unclear"] }, reason: { type: "string", maxLength: 512 } }, required: ["claim_id", "disposition", "reason"] } }, summary: { type: "string", maxLength: 512 } }, required: ["version", "validator_call_id", "overall", "deterministic_pass", "claims", "summary"] } },
     max_tokens: VALIDATOR_MAX_TOKENS, temperature: 0 };
   if (new TextEncoder().encode(JSON.stringify(request)).byteLength > VALIDATOR_INPUT_BYTES) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -132,12 +132,12 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
     const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), 30_000); });
     const raw = await Promise.race([env.AI.run(PLANNER_MODEL, request), timeout]);
     const value = validatorDecision.safeParse(validatorJson(raw));
-    if (!value.success) return null;
+    if (!value.success || input.validator_call_id === undefined || value.data.validator_call_id !== input.validator_call_id) return null;
     let report: z.infer<typeof validatorVerdict>;
     try {
       report = validatorVerdict.parse({ ...value.data, request_id: input.candidate.request_id, job_id: input.job_id, run_id: input.run_id, source: input.source,
         candidate_id: input.candidate_id ?? input.candidate.request_id, candidate_sha256, plan_sha256, validator_input_sha256,
-        validator_call_id: input.validator_call_id ?? crypto.randomUUID(), policy_revision: "m4-validator.v1", validator_call: "performed", model_id: PLANNER_MODEL, prompt_revision: "m4-validator.v1" });
+      validator_call_id: value.data.validator_call_id, policy_revision: "m4-validator.v1", validator_call: "performed", model_id: PLANNER_MODEL, prompt_revision: "m4-validator.v1" });
     } catch { return null; }
     return { ...report, report_sha256: await payloadSha256(report) };
   } catch { return null; } finally { if (timer !== undefined) clearTimeout(timer); }

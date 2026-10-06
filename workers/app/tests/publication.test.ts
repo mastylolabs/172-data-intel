@@ -69,11 +69,14 @@ describe("bounded publication", () => {
     } };
     const evidence = buildEvidence(built.context, receipt)!;
     const verdict = await runValidator({ AI: AI as never }, { question: "find export", proposal, meanings: { catalog: null, profile: null }, context: built.context, execution: evidence.execution,
-      candidate: built.candidate, deterministic: { ok: true, issues: [] }, job_id: id, run_id: id, source: support });
+      candidate: built.candidate, deterministic: { ok: true, issues: [] }, job_id: id, run_id: id, source: support, validator_call_id: callId });
     expect(verdict?.overall).toBe("pass");
     expect(verdict?.candidate_sha256).toBe(await payloadSha256(built.candidate));
     expect(received).toMatchObject({ version: "1", question: "find export", proposal, meanings: { catalog: null, profile: null }, evidence_context: built.context, execution_receipt: evidence.execution, candidate: built.candidate, candidate_sha256: await payloadSha256(built.candidate), validator_input_sha256: expect.any(String), deterministic_check: { ok: true, issues: [] } });
     expect(maxTokens).toBe(512);
+    const staleAI = { run: async () => ({ response: JSON.stringify({ version: "1", validator_call_id: "55555555-5555-4555-8555-555555555555", overall: "pass", deterministic_pass: true, claims: [{ claim_id: "no_hit", disposition: "supported", reason: "stale" }], summary: "stale" }) }) };
+    expect(await runValidator({ AI: staleAI as never }, { question: "find export", proposal, meanings: { catalog: null, profile: null }, context: built.context, execution: evidence.execution,
+      candidate: built.candidate, deterministic: { ok: true, issues: [] }, job_id: id, run_id: id, source: support, validator_call_id: callId })).toBeNull();
   });
   it("rejects a proposal source that differs from the receipt", async () => {
     const receipt = await searchEnvelope([hit()]);
