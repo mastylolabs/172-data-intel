@@ -45,8 +45,10 @@ class _Stream(Protocol):
     def getReader(self) -> _Reader: ...
 
 
-async def read_bounded_body(request: object) -> bytes:
+async def read_bounded_body(request: object, max_bytes: int = MAX_BODY_BYTES) -> bytes:
     """Read a Worker stream and let the caller classify runtime FFI failures."""
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError("invalid body limit")
     stream = getattr(request, "body", None)
     if stream is None:
         return b""
@@ -59,7 +61,7 @@ async def read_bounded_body(request: object) -> bytes:
             if part.done:
                 return b"".join(chunks)
             size += part.value.byteLength
-            if size > MAX_BODY_BYTES:
+            if size > max_bytes:
                 await reader.cancel()
                 raise BodyTooLarge
             chunks.append(part.value.to_bytes())

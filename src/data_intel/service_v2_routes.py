@@ -345,3 +345,13 @@ def handle_service_v2(
     if method == "POST" and path == "/v2/search":
         return _search_v2(body, runtime)
     return _error("not_found", "transport")
+
+
+def error_response_v2(
+    code: ServiceErrorCodeV2,
+    stage: V2Stage,
+    job_id: UUID | None = None,
+    run_id: UUID | None = None,
+) -> tuple[int, bytes]:
+    """Expose the same safe v2 error mapping to the private Worker adapter."""
+    return _error(code, stage, job_id, run_id)
