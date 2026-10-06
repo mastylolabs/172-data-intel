@@ -2,7 +2,7 @@
 
 ## Delivered
 
-PR #55, [feat(app): add bounded bridge transport](https://github.com/mastylolabs/172-data-intel/pull/55), merged through the guarded 172X process. Verified `main` revision: `4b7d17b`.
+PR #55, [feat(app): add bounded bridge transport](https://github.com/mastylolabs/172-data-intel/pull/55), merged through the guarded 172X process. Verified `main` revision: `4b7d17bd2c4b2ed10020d12ddfb32396d22177b2`.
 
 The app package now has a reusable private v2 transport boundary. It validates strict profile, query, and support-search requests, projects only approved search fields, streams request and service bodies with byte ceilings and fatal UTF-8 handling, cancels readers on overflow and read/decoder failures, maps failures to bounded safe codes, and binds returned source, job, run, payload hash, and runtime provenance to the dispatched operation. No public Worker, Durable Object, model call, UI, or deployment was included.
 
