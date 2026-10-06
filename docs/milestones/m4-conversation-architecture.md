@@ -18,7 +18,7 @@ M2 `CTRL-06` and `CTRL-07` remain unchanged for every v1 `/proof/*` path and
 for the v1 planner: its 12,288-byte input, 8,192-byte output, one-model/one-
 query job and existing 12/hour session plus 24/day global admissions still
 apply. This M4 contract adds a separately versioned v2 Validator context with
-the 32,768-byte cap above because it must carry complete bounded receipts and
+the 40,960-byte cap above because it must carry complete bounded receipts and
 field meanings; it has its own 4,096-byte output cap, strict JSON verdict and
 the same no-stream/no-technical-retry rules. The v2 four-model/two-tool job
 ceiling is stage accounting under the existing session/hour and global/day
@@ -33,11 +33,16 @@ The canonical v2 model-stage policy is:
 | Analyst planning | 12,288 bytes | 8,192 bytes / 512 | one call; no in-job replan; same session/global counter |
 | Conditional Semantic clarification | 12,288 bytes | 2,048 bytes / 256 | zero or one call only when meanings are unresolved; no retry |
 | Candidate drafting | 24,576 bytes | 4,096 bytes / 512 | one call; no retry; candidate remains private |
-| Independent Validator | 32,768 bytes | 4,096 bytes / 512 | one call; no retry; malformed/uncertain dispatch consumes admission |
+| Independent Validator | 40,960 bytes | 4,096 bytes / 512 | one call; no retry; malformed/uncertain dispatch consumes admission |
 
 All rows use the same `ProofBudget` model admission and the 12/hour session and
-24/day global ceilings. A v2 job has at most four model calls and two tool
-calls; a stage that is not needed consumes no admission. Validator remediation
+24/day global ceilings. A v2 job has at most four model calls and two Python
+service tool calls: one profile plus one query/search when a plan needs both.
+P5/P6 are deterministic in-process Python checks over immutable receipts and do
+not consume model or tool admission; if an implementation exposes their optional
+private routes, those calls remain bounded validation work and are included in
+the same two-tool counter rather than creating a second budget. A stage that is
+not needed consumes no admission. Validator remediation
 is terminal `needs_clarification` or `failed`; a corrected question creates a
 new request/job and receives a fresh plan, candidate and Validator pass.
 Max+1 request/output bodies refuse before dispatch, and SDK/provider retries
@@ -168,6 +173,7 @@ Every v2 service envelope is:
   "version": "2",
   "job_id": "UUID",
   "run_id": "UUID",
+  "receipt_id": "UUID or null",
   "payload": {},
   "payload_sha256": "64 lowercase hex characters",
   "runtime": {
@@ -181,7 +187,8 @@ Every v2 service envelope is:
 }
 ```
 
-`runtime_mode=deployed` requires both build revision and Worker version ID. Agent provenance is
+`receipt_id` is required for profile/query/search tool receipts and null for catalog responses;
+citations bind to this exact ID together with the payload hash. `runtime_mode=deployed` requires both build revision and Worker version ID. Agent provenance is
 separate and includes the Agent Worker version/build and `agents_version`; the Python Worker cannot
 assert it. `job_id` identifies the logical user operation and `run_id` identifies one stage attempt.
 Neither is bearer authority. Catalog responses use `run_id=null` and `job_id=null` because they are
@@ -292,8 +299,8 @@ For all tools, service errors are strict `ServiceErrorV2`:
 ```json
 {
   "version":"2",
-  "code":"invalid_input|unsupported_version|access_denied|source_mismatch|unsupported_source|capability_mismatch|invalid_query|unsafe_query|execution_limit|result_limit|invalid_result|runtime_incompatible|python_unavailable|not_found",
-  "stage":"input|catalog|profile|query|search|transport",
+  "code":"invalid_input|unsupported_version|access_denied|source_mismatch|unsupported_source|capability_mismatch|invalid_query|unsafe_query|execution_limit|result_limit|invalid_result|runtime_incompatible|python_unavailable|not_found|needs_clarification|planning_failed|model_unavailable|model_output_invalid|candidate_invalid|validation_failed|publication_failed|budget_exhausted|stale_job|publication_conflict|state_limit|provider_unavailable|request_conflict|request_outcome_unavailable|evidence_unavailable|source_switch_conflict",
+  "stage":"input|catalog|profile|query|search|planning|candidate|validation|publication|budget|transport",
   "job_id":"UUID or null",
   "run_id":"UUID or null",
   "limit":{"name":"max_result_bytes","maximum":16384},
@@ -444,8 +451,13 @@ call and does not alter the search receipt or quote.
 - `version:"2"`, `plan_id`, `job_id`, `plan_revision` and `plan_sha256`;
 - original question, selected full source identity, profile/capability refs and optional resolved semantic ref;
 - `mode:"profile"|"query"|"search"|"clarify"`, an acyclic ordered step list (`profile`, `query`, `search`, `clarify`), expected input/output grain and units. A profile-only question uses `mode:"profile"` with exactly one `profile` step; query/search plans may include a preceding profile step;
-- exact query/search request refs or a clarification payload; no model-supplied path, capability or authorization;
-- coverage (`complete_query_result` or `targeted_lexical_search`), required deterministic checks, context/evidence limits, stage budget and deadline;
+- exact `profile_request_ref` for every profile step, exact query/search request refs for their
+  steps, or a clarification payload; a profile-only plan must name its profile request as the
+  authoritative receipt request. No model-supplied path, capability or authorization is executable;
+- coverage (`complete_profile`, `complete_query_result` or `targeted_lexical_search`), required
+  deterministic checks, context/evidence limits, stage budget and deadline; profile-only plans use
+  `complete_profile`, require a profile receipt plus profile-field evidence refs in every material
+  claim, and never claim query/search coverage;
 - `producer` (`analyst`), `prompt_revision`, and model/runtime provenance when a model produced it.
 
 The plan is rejected if a step is unknown, cyclic, unallowlisted, source-mismatched, over limits,
@@ -473,9 +485,10 @@ profile-only plan carries its complete profile receipt and no primary query/sear
 plans may carry one optional profile receipt/context plus one primary query or search receipt. The
 worst-case byte calculation is
 profile/meanings 4,096 + query receipt 16,384 + candidate 4,096 +
-plan/question/provenance 4,096 + checks/report dispositions 4,096 = 32,768 bytes. Search jobs
-use an 8,192-byte receipt and remain below that cap. The canonical input cap is therefore 32,768
-bytes with max+1 boundary tests; no rows, meanings or material evidence are silently dropped.
+plan/question/provenance 4,096 + checks/report dispositions 4,096 = 32,768 bytes, plus at most
+4,096 bytes for strict JSON envelope overhead. Search jobs use an 8,192-byte receipt and remain
+below that bound. The canonical input cap is therefore 40,960 bytes with max+1 boundary tests;
+no rows, meanings or material evidence are silently dropped.
 Its digest is recorded before dispatch. It contains no client state authority and no raw credentials.
 
 `ValidatorReportV2` contains `version:"2"`, `report_id`, `job_id`, `run_id`, `candidate_id`,
@@ -535,7 +548,8 @@ plan_id/plan_sha256:nullable, generation:uint64, cancel_epoch:uint64,
 phase:queued|profiling|semantic|planning|executing|candidate|validating|
       cancel_requested|completed|awaiting_clarification|failed|interrupted|cancelled|budget_exhausted,
 started_at, deadline_at, active_run_id:UUID|null, stage_runs:[StageRunV2] (max 8),
-model_calls:uint (max 4), query_calls:uint (max 2), candidate_id/report_id/publication_id nullable,
+  model_calls:uint (max 4), query_calls:uint (max 2; includes profile plus query/search and any
+  optional private P5/P6 route calls), candidate_id/report_id/publication_id nullable,
 error:ServiceErrorV2|null, clarification:ClarificationV2|null, accepted_answer_id:UUID|null
 ```
 
