@@ -112,8 +112,8 @@ M3-P3 adds the pinned 16-message [synthetic support source](docs/fixtures/suppor
 `load_support_demo()` returns immutable typed messages, the full `support-demo.v1`
 identity, schema and field meanings after verifying the exact byte/hash/count
 manifest and bounded strict JSONL. It preserves original text and UTC timestamps;
-source content remains untrusted. Search, support profiling and service exposure
-are later slices.
+source content remains untrusted. Support profiling and service exposure are
+later slices.
 
 ```sh
 uv run python -c 'from data_intel.support_demo import load_support_demo; print(len(load_support_demo().rows))'
@@ -125,10 +125,24 @@ UTC intervals, hit scores/tokens, receipt counts/source bindings and fixed
 coverage limitations are validated. Canonical JSON is key-sorted UTF-8, capped
 at 2,048 bytes per request and 8,192 per receipt; payload hashes cover that exact
 content. Models preserve quotes but do not authenticate them against loaded
-messages or execute retrieval. Ranking, filtering, deadlines and source-backed
-search remain P4b; citation validation and service exposure remain later slices.
+messages or execute retrieval. Citation validation and service exposure remain
+later slices.
 Receipts require exactly `min(matched_count, request.max_hits)` returned hits;
 available matches cannot silently become an empty result.
+
+M3-P4b's private `search_support()` in `support_search.py` verifies the complete
+approved identity before loading, then scans every filter-eligible message using
+distinct ASCII tokens. Case-sensitive channel/customer filters and UTC
+`[start, end)` bounds precede matching. Hits rank by score descending, timestamp
+descending and ID ascending, with at most five complete exact quotes; counts
+explain scanned, matched, returned and omitted hits. Source-backed checks reject
+fabricated cells or token scores. The 100-ms monotonic deadline starts before
+loading, checks each message and before success; the complete canonical receipt
+must fit 8,192 bytes without trimming. `search_payload_sha256()` hashes the same
+canonical content. Failures return fixed safe codes without retries or partial
+receipts. Fixed limitations prohibit interpreting targeted hits as whole-corpus
+trends, prevalence or proof of absence; analytical validation remains false.
+This slice adds no service route or semantic search.
 
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
