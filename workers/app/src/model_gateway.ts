@@ -15,7 +15,7 @@ import {
 import { PLANNER } from "./prompts";
 
 export const PLANNER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast" as const;
-export const PLANNER_PROMPT_REVISION = "m4-planner.v1" as const;
+export const PLANNER_PROMPT_REVISION = "m4-planner.v2" as const;
 export const PLANNER_INPUT_BYTES = 12_288;
 export const PLANNER_OUTPUT_BYTES = 8_192;
 export const PLANNER_MAX_TOKENS = 512;
