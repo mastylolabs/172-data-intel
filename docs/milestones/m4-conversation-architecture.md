@@ -467,9 +467,11 @@ claims and citations are not copied into accepted history until publication pass
 
 `ValidatorInputV2` is constructed by the Agent from the immutable original question, resolved
 clarification, the complete bounded profile/field-meaning context (or the complete catalog meaning
-context for support), the complete actual query or search receipt, candidate, P5/P6 reports, source
-and runtime provenance, and requested-question coverage. A single job has one optional profile
-receipt/context plus one primary query or search receipt; the worst-case byte calculation is
+context for support), the complete actual primary query or search receipt when the plan has one,
+candidate, P5/P6 reports, source and runtime provenance, and requested-question coverage. A
+profile-only plan carries its complete profile receipt and no primary query/search receipt; other
+plans may carry one optional profile receipt/context plus one primary query or search receipt. The
+worst-case byte calculation is
 profile/meanings 4,096 + query receipt 16,384 + candidate 4,096 +
 plan/question/provenance 4,096 + checks/report dispositions 4,096 = 32,768 bytes. Search jobs
 use an 8,192-byte receipt and remain below that cap. The canonical input cap is therefore 32,768
@@ -553,7 +555,7 @@ or cancel epoch and fences old work.
 
 A stage admission is reserved before dispatch and is never refunded after an uncertain timeout. MVP
 limits are: 12 model calls per session rolling hour, 24 model calls per UTC day globally, 30 accepted
-jobs per session rolling hour, 128 tool attempts per UTC day globally, 6 model calls and 2 tool calls
+jobs per session rolling hour, 128 tool attempts per UTC day globally, 4 model calls and 2 tool calls
 per job, one active job per session, no in-job replan, 30-second model wait, 10-second service
 binding wait and 60-second job publication deadline. These are application safety limits; no reset
 or billing behavior is implied. The current P4b budget remains the global source of truth until a
