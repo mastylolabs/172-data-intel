@@ -159,6 +159,7 @@ export const AGENTS_VERSION = "0.26.0" as const;
 export const serviceError = z.strictObject({
   version: z.literal("1"),
   code: z.enum([
+    "access_denied",
     "invalid_input",
     "unsupported_version",
     "not_found",
@@ -168,7 +169,9 @@ export const serviceError = z.strictObject({
     "execution_limit",
     "invalid_result",
     "result_limit",
+    "request_conflict",
     "runtime_incompatible",
+    "python_unavailable",
     "unsupported_source",
     "source_mismatch",
   ]),

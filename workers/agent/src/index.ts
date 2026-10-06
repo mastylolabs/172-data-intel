@@ -41,7 +41,7 @@ const json = (value: unknown, status = 200): Response =>
   Response.json(value, { status, headers: responseHeaders });
 
 const fail = (code: string, status = 400): Response =>
-  json({ version: "1", code, stage: "transport", automatic_retry: false }, status);
+  json({ version: "1", code, stage: "transport", job_id: null, limit: null, provider_reason: null, automatic_retry: false }, status);
 function sameSource(
   left: { version: string; source_id: string; snapshot_sha256: string; meaning_revision: string },
   right: { version: string; source_id: string; snapshot_sha256: string; meaning_revision: string },
@@ -91,7 +91,7 @@ async function executeSql(
   });
   if (!provenanceCheck.success) return fail("runtime_incompatible", 503);
   const metaResponse = await env.TOOLS.fetch("https://tools/metadata");
-  if (!metaResponse.ok) return fail("service_unavailable", 502);
+  if (!metaResponse.ok) return fail("python_unavailable", 502);
   const meta = metadata.parse(await boundedJson(metaResponse, 4096));
   const response = await env.TOOLS.fetch("https://tools/query", {
     method: "POST",
@@ -158,7 +158,7 @@ export class ProofAgent extends Agent<Env, State> {
     if (!["/proof/source", "/proof/sql", "/proof/reset"].includes(path)) {
       return fail("not_found", 404);
     }
-    if (this.busy) return fail("busy", 409);
+    if (this.busy) return fail("request_conflict", 409);
     this.busy = true;
     let service = false;
     try {
@@ -182,7 +182,7 @@ export class ProofAgent extends Agent<Env, State> {
       }
       return json(this.state);
     } catch (error) {
-      if (service) return fail("service_unavailable", 502);
+      if (service) return fail("python_unavailable", 502);
       if (error instanceof Error && error.message === "result_limit") return fail("result_limit", 413);
       return fail("invalid_input", 400);
     } finally {
