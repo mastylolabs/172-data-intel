@@ -37,6 +37,7 @@ const timestamp = z.iso.datetime({ precision: 0 }).refine(
 );
 
 export const sourceRequest = z.strictObject({ version, source: approvedSource });
+export const askRequest = z.strictObject({ version, request_id: requestId, question: text(1024) });
 export const profileRequest = z.strictObject({ version, request_id: requestId });
 export const queryRequest = z.strictObject({
   version,

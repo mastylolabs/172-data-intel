@@ -24,13 +24,47 @@ async function queryResult(job: string, run = job): Promise<unknown> {
   const rows = [[{ type: "integer", value: "1", exact: true }]];
   return { version: "2", receipt_id: job, job_id: job, source, schema_revision: "sales-demo.v1", engine_policy: "m2-sqlite.v1", actual_sql, sql_sha256, columns: ["value"], rows, row_count: 1, result_sha256: await payloadSha256({ columns: ["value"], rows }), coverage: "complete_query_result", truncated: false, analytical_validated: false, limits: queryLimits, runtime: { python_version: runtime.python_version, sqlite_version: runtime.sqlite_version, runtime_mode: "local", build_revision: null, worker_version_id: null } };
 }
-function env(fetch: Fetcher): Env { return { TOOLS: fetch, RUNTIME_MODE: "local", AppAgent: {} as Env["AppAgent"] }; }
-function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [] }; }
-function harness(fetch: Fetcher, initial = state()): { agent: AppAgent; jobs: Promise<unknown>[]; state: () => BridgeState } { const jobs: Promise<unknown>[] = []; const agent = new AppAgent({ waitUntil: (promise: Promise<unknown>) => jobs.push(promise) } as never, env(fetch)); (agent as unknown as { state: BridgeState }).state = initial; return { agent, jobs, state: () => (agent as unknown as { state: BridgeState }).state }; }
+const idleAI = { run: async () => ({ response: "{}" }) } as unknown as Env["AI"];
+function env(fetch: Fetcher, AI: Env["AI"] = idleAI): Env { return { TOOLS: fetch, AI, RUNTIME_MODE: "local", AppAgent: {} as Env["AppAgent"] }; }
+function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 }; }
+function harness(fetch: Fetcher, initial = state(), AI: Env["AI"] = idleAI): { agent: AppAgent; jobs: Promise<unknown>[]; state: () => BridgeState } { const jobs: Promise<unknown>[] = []; const agent = new AppAgent({ waitUntil: (promise: Promise<unknown>) => jobs.push(promise) } as never, env(fetch, AI)); (agent as unknown as { state: BridgeState }).state = initial; return { agent, jobs, state: () => (agent as unknown as { state: BridgeState }).state }; }
+function model(value: unknown): Env["AI"] { return { run: async () => ({ response: JSON.stringify(value) }) } as unknown as Env["AI"]; }
+const planned = { version: "1", request_id: id, source, status: "plan", mode: "query", sql: "SELECT 1", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
+const clarification = { version: "1", request_id: id, source, status: "clarify", mode: "clarify", sql: null, query: null, channel: null, customer: null, start: null, end: null, clarification: "Which period should I compare?" } as const;
 function post(path: string, body: Record<string, unknown>): Request { return new Request(`https://app.test${path}`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }); }
 function tools(delay = false): { fetcher: Fetcher; pending: { resolve: (response: Response) => void } } { let resolve = (_response: Response): void => undefined; const pending = { resolve: (response: Response): void => resolve(response) }; const fetcher = { fetch: async (request: Request) => { const path = new URL(request.url).pathname; if (path === "/v2/catalog") return new Response(await wire(catalog, null, null)); if (delay) return new Promise<Response>((done) => { resolve = done; }); const body = JSON.parse(await request.text()) as { job_id: string; run_id: string }; const payload = path.endsWith("search") ? search : path.endsWith("query") ? await queryResult(body.job_id, body.run_id) : profile; return new Response(await wire(payload, body.job_id, body.run_id)); } } as unknown as Fetcher; return { fetcher, pending }; }
 
 describe("native app lifecycle", () => {
+  it("plans an ask, persists its proposal, and replays the owned state", async () => {
+    const test = harness(tools().fetcher, state(), model(planned));
+    expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(202);
+    await test.jobs[0];
+    expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(1);
+    expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(200);
+  });
+  it("persists clarification and safely classifies quota failures", async () => {
+    const clarify = harness(tools().fetcher, state(), model(clarification));
+    await clarify.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "compare periods" })); await clarify.jobs[0];
+    expect(clarify.state().session.active_job?.phase).toBe("awaiting_clarification"); expect(clarify.state().planner?.result.kind).toBe("clarification");
+    const quota = harness(tools().fetcher, state(), { run: async () => { throw Object.assign(new Error("quota"), { code: 4006 }); } } as unknown as Env["AI"]);
+    await quota.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await quota.jobs[0];
+    expect(quota.state().planner?.result).toMatchObject({ kind: "failure", code: "model_quota" });
+  });
+  it("exhausts the persisted model budget and fences cancellation", async () => {
+    const exhausted = harness(tools().fetcher, { ...state(), model_calls: 3 }, model(planned));
+    await exhausted.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await exhausted.jobs[0];
+    expect(exhausted.state().session.active_job?.phase).toBe("budget_exhausted"); expect(exhausted.state().planner?.result).toMatchObject({ kind: "failure", code: "budget_exhausted" });
+    const pending = tools(true); const canceled = harness(pending.fetcher, state(), model(planned));
+    await canceled.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await Promise.resolve();
+    expect((await canceled.agent.onRequest(post("/api/cancel", { version: "2" }))).status).toBe(200);
+    pending.pending.resolve(new Response(await wire(profile, id, id))); await canceled.jobs[0];
+    expect(canceled.state().planner).toBeNull(); expect(canceled.state().model_calls).toBe(0);
+  });
+  it("rejects an oversized ask before dispatch", async () => {
+    const test = harness(tools().fetcher, state(), model(planned));
+    expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "x".repeat(1025) }))).status).toBe(400);
+    expect(test.jobs).toHaveLength(0);
+  });
   it("completes a profile job, persists refresh state, and replays its owned outcome", async () => {
     const test = harness(tools().fetcher);
     expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id }))).status).toBe(202);
