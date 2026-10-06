@@ -3,11 +3,11 @@ import { z } from "zod";
 const bytes = (value: string): number => new TextEncoder().encode(value).length;
 const unicode = (value: string): boolean =>
   Array.from(value).every((c) => c.codePointAt(0)! < 0xd800 || c.codePointAt(0)! > 0xdfff);
+const nonBlank = (value: string): boolean => /[^\p{White_Space}]/u.test(value);
 const text = (max: number) =>
   z
     .string()
-    .min(1)
-    .refine((s) => bytes(s) <= max && unicode(s));
+    .refine((s) => bytes(s) <= max && unicode(s) && nonBlank(s));
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z
   .string()
@@ -135,8 +135,8 @@ export const result = z
 export const sqlInput = z.strictObject({
   version: z.literal("1"),
   request_id: z.uuid(),
-  question: z.string().min(1).max(2000).regex(/\S/u),
-  sql: text(8000).regex(/\S/u),
+  question: z.string().max(2000).refine(nonBlank),
+  sql: text(8000),
   max_rows: z.number().int().min(1).max(20),
 });
 export const serviceError = z.strictObject({
