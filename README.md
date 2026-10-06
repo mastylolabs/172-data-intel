@@ -1,14 +1,40 @@
 # 172X Data Intelligence
 
-An evidence-first analytical MVP under staged construction. M1 provides a public
-Python package, strict engineering gate and versioned source/SQL-intent contracts.
-The Cloudflare Agent, Python execution, Workers AI and web chat are planned in
-the [delivery plan](docs/mvp-delivery-plan.md). The original
-[architecture](docs/architecture.md) remains the design reference.
+An evidence-first analytical MVP with a Cloudflare Agent, Durable Object session
+state, Workers AI Llama 3.3, bounded Python analytical tools and a web chat. The
+live app is https://172x-data-intel-mvp-app.zmastylo.workers.dev. The original
+[architecture](docs/architecture.md) remains the design reference and the staged
+scope is tracked in the [delivery plan](docs/mvp-delivery-plan.md).
 
-The separate [app contract foundation](workers/app/README.md) prepares strict
-demo-source/model proposal contracts and Python v2 evidence verification. It has
-no public routes or deployment yet; `make gate` includes its TypeScript checks.
+## Current MVP setup and deployment
+
+Use Python >=3.12, [uv](https://docs.astral.sh/uv/), Node/npm and Wrangler. From a
+clean checkout run `make install`, then `make gate`. The public Worker is
+`workers/app`; the private Python tools and Agent Workers are configured in
+`workers/tools` and `workers/agent`. Configure the same 32-byte
+`PLANNER_BUDGET_TOKEN` secret in the Agent and app Workers with
+`wrangler secret put PLANNER_BUDGET_TOKEN`; keep the value out of source and logs.
+
+Deploy the reviewed tools and Agent Workers first. Deploy the app with the exact
+40-character tools build revision and promoted tools Worker version UUID:
+
+```sh
+npx wrangler deploy --config workers/tools/wrangler.jsonc
+npx wrangler deploy --config workers/agent/wrangler.jsonc
+npx wrangler deploy --config workers/app/wrangler.jsonc \
+  --var TOOLS_BUILD_REVISION:<tools-main-sha> \
+  --var TOOLS_WORKER_VERSION_ID:<tools-version-uuid>
+```
+
+The app serves `GET /` and same-origin JSON routes under `/api/`; select `sales`
+or `support`, then ask a question and poll `/api/state`. Example questions are
+“What are total net units?” and “Find messages about export errors”. The final
+deployment and smoke evidence are recorded in
+[the final milestone report](docs/milestones/m6-final-report.md).
+
+The [app package documentation](workers/app/README.md) covers the public route
+contract, bounded model calls, evidence publication and deployment variables.
+`make gate` includes its TypeScript checks.
 
 Use Python >=3.12, [uv](https://docs.astral.sh/uv/) and Make:
 
@@ -21,8 +47,9 @@ make coverage
 
 `make install` and `make sync` use `uv sync --all-extras --dev`; `uv.lock` pins
 public application and developer dependencies. The editable `src/data_intel`
-package needs no private 172X dependency, service or credentials. There is no
-environment configuration or running server yet.
+package needs no private 172X dependency, service or credentials for local
+checks. Cloudflare Worker configuration and deployment variables are documented
+above; the running public app is the deployed URL in the current MVP section.
 
 Use `make format`, `lint`, `typecheck`, `test`, `complexity` or `coverage` for
 focused checks. `make gate` runs Ruff formatting/linting, strict mypy, pytest,
@@ -167,17 +194,18 @@ physical source, so bare `count(*)` queries must use `main.sales`; CTEs named
 `sales` cannot satisfy source authorization. The private `service_contracts.py`
 adapter validates version-1 requests and exact typed results, including hashes,
 cell encoding, the complete 16,384-byte result envelope and explicit runtime
-provenance. Local parity
-tests execute the existing engine; deployed service execution remains unverified.
+provenance. Local parity tests execute the existing engine; deployed v2 service
+execution is covered by the final smoke report.
 The private Python Worker now routes GET `/health`, GET `/metadata`, and bounded
 POST `/query` over a service binding. Health probes the SQLite policy, metadata
 returns the pinned sales source and field meanings, and query executes only the
 approved fixture with typed receipts and safe error codes. The Worker rejects
-oversized streamed bodies before JSON parsing; no public route is configured.
-Local service tests pass, but deployed service-binding behavior remains unverified.
-Full profiling, support retrieval, analytical/citation validation, persistence,
-model calls, UI and deployment remain planned. Cloudflare Python/SQLite
-compatibility and deployed controls are unverified. Follow [TODO.md](TODO.md) for
+oversized streamed bodies before JSON parsing; the tools Worker itself has no
+public route, while the app exposes the public chat through its service binding.
+Local service tests and the deployed v2 service path are covered by the final
+smoke report. Profiling, support retrieval, analytical/citation validation,
+persistence, model calls, UI and deployment are delivered in the current MVP;
+larger capabilities remain planned. Follow [TODO.md](TODO.md) for
 the next bounded capability. Full GO permits
 continuing the approved milestones; each retains its report and independent gates.
 
@@ -188,7 +216,8 @@ tooling in its own `pyproject.toml` and `uv.lock`, disables public Worker URLs a
 preview URLs,
 and reads its own version-metadata binding and injected `BUILD_REVISION`. Unknown
 routes answer 404; missing deployed provenance answers 503. The private query
-route is locally verified only and has no Agent caller or deployed SQL proof yet.
+route is called by the deployed app Agent through its service binding; deployed
+v2 SQL and runtime provenance are recorded in the final milestone report.
 
 From a **clean committed checkout** with the locked Worker dev tools installed,
 run `make python-worker-dry-run` to package without uploading. The helper refuses
@@ -203,11 +232,12 @@ that every committed `src/data_intel` Python source file matches the vendored
 bundle; Pywrangler's
 ordinary timestamp check does not track local source edits.
 The older Wrangler 4.11.1 returned a false-success bundle without vendored
-modules; use the pinned package and lockfile. Deployed runtime controls still
-need a reviewed probe.
+modules; use the pinned package and lockfile. Deployed runtime controls are
+verified in the final milestone smoke report.
 
 The [Agent wire foundation](workers/agent/README.md) adds pinned TypeScript tooling,
 strict private Python response validation, exact hash parity and bounded JSON
 stream helpers. `make gate` also runs its clean npm install, typecheck and Vitest
 tests through `make typescript-gate`. Native Agent routing, sessions, private
-service calls and Wrangler/deployment configuration belong to the next reviewed slice.
+service calls and Wrangler/deployment configuration are delivered by the app
+Worker; see the final milestone report for the reviewed deployment evidence.
