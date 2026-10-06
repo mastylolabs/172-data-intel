@@ -103,6 +103,25 @@ def test_entry_rejects_capability_and_utf8_mismatches() -> None:
             _entry().model_dump(mode="json")
             | {"capability_help": {"profile": "x" * 181, "query": "q"}}
         )
+    base = _entry()
+    with pytest.raises(ValidationError, match="capability_mismatch"):
+        CatalogEntryV2(
+            source=base.source,
+            schema_revision=base.schema_revision,
+            profile_revision=base.profile_revision,
+            kind=base.kind,
+            display_name=base.display_name,
+            description=base.description,
+            capability_help=(
+                ("profile", "first"),
+                ("profile", "duplicate"),
+                ("query", "second"),
+            ),
+            capabilities=base.capabilities,
+            record_count=base.record_count,
+            manifest_bytes=base.manifest_bytes,
+            scope=base.scope,
+        )
 
 
 def test_catalog_rejects_fabricated_manifest_and_unknown_fields() -> None:

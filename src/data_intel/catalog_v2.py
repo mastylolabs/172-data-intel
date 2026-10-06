@@ -76,7 +76,11 @@ class CatalogEntryV2(V2StrictModel):
         if len(self.capabilities) != len(set(self.capabilities)):
             raise ValueError("invalid_input")
         help_keys = {key for key, _ in self.capability_help}
-        if set(self.capabilities) != expected or help_keys != expected:
+        if (
+            len(help_keys) != len(self.capability_help)
+            or set(self.capabilities) != expected
+            or help_keys != expected
+        ):
             raise ValueError("capability_mismatch")
         return self
 
