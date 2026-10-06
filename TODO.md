@@ -24,7 +24,7 @@
   in its temporary dry-run artifact. A focused correction also forces local
   source sync and checks exact vendored Python bytes. Private Python `/health`,
   `/metadata`, and bounded `/query` routes now have local contract/stream tests
-  but no deployed service-binding proof. Next: review the private routes, then
+  but no deployed service-binding proof. P3a is reviewed and merged. Next:
   build the native Agent bridge for deployed SQL/control receipts, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A
