@@ -6,6 +6,7 @@ import {
   type Envelope,
   type Source,
 } from "./contracts";
+import { unicode } from "./policy";
 
 export interface ToolsBinding {
   fetch(request: Request): Promise<Response>;
@@ -27,7 +28,8 @@ export class BridgeError extends Error {
 const version = z.literal("2");
 const requestId = z.uuid().refine((value) => value === value.toLowerCase());
 const text = (maximum: number): z.ZodType<string> => z.string().refine(
-  (value) => value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= maximum,
+  (value) => unicode(value) && !/[\p{Cc}\p{Cf}]/u.test(value) && value.trim().length > 0 &&
+    new TextEncoder().encode(value).byteLength <= maximum,
 );
 const timestamp = z.iso.datetime({ precision: 0 }).refine(
   (value) => !value.startsWith("0000") && new Date(value).toISOString() === value.replace("Z", ".000Z"),
@@ -58,7 +60,8 @@ export async function readBoundedText(
   maximum: number,
   status: number,
 ): Promise<string> {
-  if (body === null) throw new BridgeError("invalid_input", status);
+  const failureStatus = status === 413 ? 400 : status;
+  if (body === null) throw new BridgeError(status === 413 ? "invalid_input" : "invalid_result", failureStatus);
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
   const chunks: string[] = [];
@@ -78,7 +81,8 @@ export async function readBoundedText(
     return chunks.join("");
   } catch (error) {
     if (error instanceof BridgeError) throw error;
-    throw new BridgeError(status === 413 ? "invalid_input" : "invalid_result", status);
+    await reader.cancel().catch(() => undefined);
+    throw new BridgeError(status === 413 ? "invalid_input" : "invalid_result", failureStatus);
   } finally {
     reader.releaseLock();
   }
@@ -124,6 +128,11 @@ export function buildToolBody(
   };
 }
 
+function sameSource(left: Source, right: Source): boolean {
+  return left.version === right.version && left.source_id === right.source_id &&
+    left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;
+}
+
 export async function executeTool(
   env: TransportEnv,
   kind: DomainKind,
@@ -156,10 +165,16 @@ export async function executeTool(
   }
   try {
     const envelope = await validatedDomainEnvelope(kind, payload);
+    const outbound = kind === "catalog" ? null : approvedSource.safeParse(body?.source);
+    const payloadSource = kind === "catalog" || !("source" in envelope.payload)
+      ? null : envelope.payload.source;
+    const sourceMatches = kind === "catalog" || (
+      outbound !== null && outbound.success && payloadSource !== null && sameSource(outbound.data, payloadSource)
+    );
     const identityMatches = kind === "catalog" || (
       expected !== null && envelope.job_id === expected.jobId && envelope.run_id === expected.runId
     );
-    if (env.RUNTIME_MODE !== envelope.runtime.runtime_mode || !identityMatches) {
+    if (env.RUNTIME_MODE !== envelope.runtime.runtime_mode || !identityMatches || !sourceMatches) {
       throw new Error("identity_or_runtime");
     }
     return envelope;

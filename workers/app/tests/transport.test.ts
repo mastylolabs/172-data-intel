@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { payloadSha256 } from "../src/policy";
 import {
-  buildToolBody, executeTool, readBoundedText, readJson, searchRequest, type TransportEnv,
+  buildToolBody, executeTool, readBoundedText, readJson, searchRequest, type ResultKind,
+  type TransportEnv,
 } from "../src/transport";
+import type { Source } from "../src/contracts";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const foreign = "22222222-2222-4222-8222-222222222222";
@@ -59,19 +61,39 @@ describe("bounded bridge transport", () => {
       await expect(executeTool(env, kind, {}, { jobId: id, runId: id })).rejects.toThrow("invalid_result");
     }
   });
+  it("binds every non-catalog payload source to its outbound source", async () => {
+    const cases: Array<[ResultKind, unknown, Source]> = [
+      ["profile", profile, support],
+      ["query", await query(), support],
+      ["search", search, source],
+    ];
+    for (const [kind, payload, outboundSource] of cases) {
+      const env = environment(() => wireResponse(payload, id, id, id));
+      await expect(executeTool(env, kind, { source: outboundSource }, { jobId: id, runId: id }))
+        .rejects.toMatchObject({ code: "invalid_result", status: 502 });
+    }
+  });
   it("projects search fields and enforces strict date intervals", () => {
     const body = buildToolBody("search", id, id, support, { version: "2", request_id: id, query: "export", channel: null, customer: null, start: null, end: null, max_hits: 2 });
     expect(body).toEqual({ version: "2", job_id: id, run_id: id, source: support, query: "export", channel: null, customer: null, start: null, end: null, max_hits: 2 });
     expect(searchRequest.safeParse({ version: "2", request_id: id, query: "x", channel: null, customer: null, start: "2026-02-01T00:00:00Z", end: "2026-01-01T00:00:00Z", max_hits: 1 }).success).toBe(false);
     expect(searchRequest.safeParse({ version: "2", request_id: id, query: "x", channel: null, customer: null, start: null, end: null, max_hits: 1, extra: true }).success).toBe(false);
+    expect(searchRequest.safeParse({ version: "2", request_id: id, query: "x\n", channel: null, customer: null, start: null, end: null, max_hits: 1 }).success).toBe(false);
+    expect(searchRequest.safeParse({ version: "2", request_id: id, query: "\ud800", channel: null, customer: null, start: null, end: null, max_hits: 1 }).success).toBe(false);
   });
   it("rejects malformed UTF-8 and cancels bodies at input/result limits", async () => {
     const input = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([123])); controller.enqueue(new Uint8Array(20)); controller.close(); } });
-    await expect(readJson(new Request("https://app.test", { method: "POST", body: input as unknown as BodyInit, duplex: "half" } as RequestInit), 8)).rejects.toThrow("result_limit");
-    const malformed = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([0xc3, 0x28])); controller.close(); } });
-    await expect(readJson(new Request("https://app.test", { method: "POST", body: malformed as unknown as BodyInit, duplex: "half" } as RequestInit))).rejects.toThrow("invalid_input");
+    await expect(readJson(new Request("https://app.test", { method: "POST", body: input as unknown as BodyInit, duplex: "half" } as RequestInit), 8)).rejects.toMatchObject({ code: "result_limit", status: 413 });
+    let cancelled = false;
+    const malformed = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([0xc3, 0x28])); }, cancel() { cancelled = true; } });
+    await expect(readBoundedText(malformed, 32, 413)).rejects.toMatchObject({ code: "invalid_input", status: 400 });
+    expect(cancelled).toBe(true);
+    const failing = { getReader: () => ({ read: async () => { throw new Error("reader"); }, cancel: async () => { cancelled = true; }, releaseLock: () => undefined }) } as unknown as ReadableStream<Uint8Array>;
+    await expect(readBoundedText(failing, 32, 413)).rejects.toMatchObject({ code: "invalid_input", status: 400 });
+    const malformedJson = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new Uint8Array([0xc3, 0x28])); controller.close(); } });
+    await expect(readJson(new Request("https://app.test", { method: "POST", body: malformedJson as unknown as BodyInit, duplex: "half" } as RequestInit))).rejects.toMatchObject({ code: "invalid_input", status: 400 });
     const output = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("{}")); controller.enqueue(new Uint8Array(20_000)); controller.close(); } });
-    await expect(executeTool(environment(() => Promise.resolve(new Response(output))), "profile", {}, { jobId: id, runId: id })).rejects.toThrow("result_limit");
+    await expect(executeTool(environment(() => Promise.resolve(new Response(output))), "profile", {}, { jobId: id, runId: id })).rejects.toMatchObject({ code: "result_limit", status: 502 });
   });
   it("maps timeout and non-2xx service failures without exposing bodies", async () => {
     await expect(executeTool({ RUNTIME_MODE: "local", TOOLS: { fetch: async () => { throw new Error("secret"); } } }, "profile", {}, { jobId: id, runId: id })).rejects.toThrow("tool_unavailable");
