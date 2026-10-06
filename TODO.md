@@ -40,9 +40,10 @@
   SQL through an explicit trusted engine opt-in, retaining proof-only defaults
   for v1 service callers, and is reviewed and merged. P3's strict loading of
   the pinned 16-message support JSONL is merged. P4a adds strict lexical
-  request/hit/receipt models and bounded canonical serialization; complete
-  independent QA/review and guarded merge before P4b source-backed search.
-  Support profiling/retrieval, private v2 service exposure and typed
+  request/hit/receipt models and bounded canonical serialization and is merged.
+  P4b implements private source-backed lexical search with exact quotes, filters,
+  deterministic ranking, counts and safe deadline/result failures; complete its
+  independent QA/review and guarded merge. Support profiling, private v2 service exposure and typed
   deterministic validation remain later bounded slices.
 - M4–M5, planned: real SQL/retrieval and
   deterministic validation; independently validated durable conversations;
