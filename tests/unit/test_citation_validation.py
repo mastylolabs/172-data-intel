@@ -121,6 +121,23 @@ def test_quote_bytes_case_and_whitespace_are_exact() -> None:
         "All messages mention exports.",
         "None of the complaints mention exports.",
         "No customers mention exports.",
+        "Half of customers mention exports.",
+        "A quarter of complaints mention exports.",
+        "A third of support requests mention exports.",
+        "One in three customers mention exports.",
+        "9 in 10 customers mention exports.",
+        "No one reported an export issue.",
+        "All export issues were resolved.",
+        "Zero export issues were resolved.",
+        "Export complaints increased.",
+        "Export complaints decreased.",
+        "Export complaints rose.",
+        "Export complaints grew.",
+        "Export complaints fell.",
+        "Export complaints declined.",
+        "Export complaints appeared month after month.",
+        "Export complaints appeared week after week.",
+        "Export complaints appeared year after year.",
     ],
 )
 def test_targeted_quote_cannot_prove_corpus_claims(assertion: str) -> None:
@@ -142,3 +159,5 @@ def test_caveat_and_no_hits_refuse_or_pass_only_as_targeted_evidence() -> None:
     )
     with pytest.raises(CitationBoundaryError, match="invalid_input"):
         validate_citation(citation, evidence, "x" * 1025)
+    with pytest.raises(CitationBoundaryError, match="invalid_input"):
+        validate_citation(citation, evidence, "\ud800")

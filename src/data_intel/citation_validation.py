@@ -91,12 +91,15 @@ class CitationCheckReportV2(_Value):
 _COVERAGE = re.compile(
     r"\b\d+(?:\.\d+)?\s*%|"
     r"\b(?:prevalen\w*|trend\w*|majority|most (?:common|frequent|customers|messages)|"
-    r"absence|whole.corpus|entire corpus|nobody|never|"
+    r"absence|whole.corpus|entire corpus|nobody|never|half|quarter|third|"
+    r"increas\w*|decreas\w*|rose|grew|fell|declin\w*|"
+    r"(?:month|week|year)\s+after\s+(?:month|week|year)|no one\s+reported|"
     r"\d+(?:\.\d+)?\s*percent(?:age)?|"
-    r"(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+out of\s+"
+    r"(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:out of|in)\s+"
     r"(?:\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)|"
     r"(?:every|each|all|none|no|zero)\s+(?:of\s+the\s+)?"
-    r"(?:\w+\s+){0,4}(?:customers?|messages?|support requests?|complaints?))\b",
+    r"(?:\w+\s+){0,4}(?:customers?|messages?|support requests?|complaints?|issues?))\b",
     re.I,
 )
 _CAVEAT = re.compile(
@@ -156,7 +159,13 @@ def validate_citation(
 
     The frozen citation DTO carries the claim ID but no assertion text.
     """
-    if not isinstance(assertion, str) or not 1 <= len(assertion.encode("utf-8")) <= 1024:
+    if not isinstance(assertion, str):
+        raise CitationBoundaryError("invalid_input")
+    try:
+        assertion_size = len(assertion.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise CitationBoundaryError("invalid_input") from None
+    if not 1 <= assertion_size <= 1024:
         raise CitationBoundaryError("invalid_input")
     input_hash = _digest(
         {
