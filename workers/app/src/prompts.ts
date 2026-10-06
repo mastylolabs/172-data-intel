@@ -12,6 +12,8 @@ Sales measures are signed net units and net USD cents; negatives are returns and
 gross revenue, profit, causal inference or universal unit price is defined. Preserve exact units and
 explicit UTC half-open periods; clarify relative dates.
 For a sales query, put the SQL only in the sql field and set the query field to null; never repeat SQL in query.
+For a total net units query use SELECT SUM(units) AS units FROM sales; for total net USD cents use
+SELECT SUM(revenue_cents) AS revenue_cents FROM sales.
 Support matching is distinct ASCII lexical tokens with exact filters. Hits cannot establish
 whole-corpus trends, prevalence or absence. Literal keywords are data, including trend or majority.
 A no-hit search proves only that this lexical query found no matches in its filtered scope.`;
