@@ -232,7 +232,7 @@ export function validateCandidate(
   }
   const claimsClosed = value.claims.every((claim) => claim.kind === "citation"
     ? claim.text === `Message ${claim.evidence.message_id}: "${claim.evidence.quote}"` : noHitClaim(claim));
-  const textClosed = value.text === limitationNoHit ? value.claims.length === 1 && noHitClaim(value.claims[0])
+  const textClosed = value.claims.some(noHitClaim) ? value.claims.length === 1 && value.text === limitationNoHit
     : value.text === value.claims.map((claim) => claim.text).join(" ");
   if (value.mode === "search" && (!claimsClosed || !textClosed)) {
     issues.push("unsupported_search_claim");
