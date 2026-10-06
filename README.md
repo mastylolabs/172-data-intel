@@ -79,8 +79,23 @@ M3-P2a adds the strict frozen `DataProfileV2` sales receipt models in
 from 0–256; exact unit/cents statistics are canonical signed-int64 decimal strings.
 The complete receipt serializes as key-sorted UTF-8 JSON and refuses over 4,096
 bytes without trimming. Schema acceptance and serialization do not authenticate
-source bytes or compute statistics. Whole-source profiling and deadline checks
-remain the next bounded slice; no new query capability or service route is added.
+source bytes or compute statistics. The foundation adds no query capability or
+service route.
+
+M3-P2b's `profile_sales_demo()` in `sales_profile.py` loads the approved demo and
+computes whole-source count/date/null/dimension facts and exact unit/cents
+count/min/max/sum. Dimensions are sorted, show at most eight labels each and
+report omitted counts. The fixed omissions describe excluded rows, samples,
+distributions and uncomputed statistics. `profile_payload_sha256()` hashes the
+bounded canonical payload without changing its version-2 fields. A 100-ms
+monotonic deadline starts before loading, checks each record and before success;
+the 256-record, signed-int64 and complete 4,096-byte output ceilings refuse
+without partial results. These are defensive limits, not measured deployed
+latency. Query capabilities remain empty and analytical validation remains false.
+
+```sh
+uv run python -c 'from data_intel.sales_profile import profile_sales_demo; print(profile_sales_demo().measures)'
+```
 
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
