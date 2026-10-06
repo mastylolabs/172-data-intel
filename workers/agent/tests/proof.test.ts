@@ -2,12 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import meta from "./fixtures/metadata.json";
 import receipt from "./fixtures/result.json";
 import { metadata } from "../src/contracts";
+import { SALES_SOURCE, finishJob, initialSessionState, type SessionStateV2 } from "../src/v2-state";
 vi.mock("agents", () => ({
   Agent: class {
     state: unknown;
     env: unknown;
+    ctx: { storage: { get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> } };
     constructor(_ctx: unknown, env: unknown) {
       this.env = env;
+      this.ctx = {
+        storage: { get: vi.fn().mockResolvedValue(undefined), put: vi.fn().mockResolvedValue(undefined) },
+      };
     }
     setState(next: unknown): void {
       this.state = next;
@@ -64,6 +69,11 @@ function request(path: string, body?: unknown, extra: Record<string, string> = {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
+function sessionStorage(agent: InstanceType<typeof ProofAgent>): {
+  get: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn>;
+} {
+  return (agent as unknown as { ctx: { storage: ReturnType<typeof sessionStorage> } }).ctx.storage;
+}
 describe("restricted native proof bridge", () => {
   it("denies auth, public routes, foreign origins, upgrades and wrong methods before lookup", async () => {
     const { env, lookup } = setup();
@@ -88,6 +98,106 @@ describe("restricted native proof bridge", () => {
     expect(cookie).not.toContain(lookup.mock.calls[0][0]);
     await worker.fetch(request("/proof/state"), env);
     expect(lookup.mock.calls[2][0]).not.toBe(lookup.mock.calls[0][0]);
+  });
+  it("persists the v2 session separately and fences source/reset changes", async () => {
+    const { env, agent } = setup();
+    const session = await worker.fetch(request("/v2/session"), env);
+    expect(session.status).toBe(200);
+    expect((await session.json() as { selected_source: null }).selected_source).toBeNull();
+    const denied = await worker.fetch(request("/v2/session", undefined, { authorization: "bad" }), env);
+    expect((await denied.json() as { version: string }).version).toBe("2");
+    const support = await worker.fetch(
+      request("/v2/source", { version: "2", source: {
+        version: "1",
+        source_id: "support",
+        snapshot_sha256: "c6365aa74909b4deb09bb00114f7b489dcc8c9c152c57855db95fd6304e1e536",
+        meaning_revision: "support-demo.v1",
+      } }),
+      env,
+    );
+    expect(support.status).toBe(200);
+    const supportBody = await support.json() as { selected_source: { source_id: string } };
+    expect(supportBody.selected_source.source_id).toBe("support");
+    const storage = sessionStorage(agent);
+    storage.get.mockResolvedValueOnce(storage.put.mock.calls.at(-1)?.[1]);
+    const refreshed = await agent.onRequest(new Request("https://proof.example/v2/session"));
+    expect((await refreshed.json() as { selected_source: { source_id: string } }).selected_source.source_id).toBe("support");
+    expect((await worker.fetch(request("/v2/source", { source: supportBody.selected_source }), env)).status).toBe(400);
+    const reset = await worker.fetch(request("/v2/reset", { version: "2" }), env);
+    expect((await reset.json() as { selected_source: null }).selected_source).toBeNull();
+  });
+  it("rotates v2 reset identity, denies the old cookie and leaves v1 state intact", async () => {
+    const { env, agent, lookup } = setup();
+    const storage = sessionStorage(agent);
+    storage.get.mockImplementation(async () => storage.put.mock.calls.at(-1)?.[1]);
+    const before = structuredClone(agent.state);
+    const opened = await worker.fetch(request("/v2/session"), env);
+    const cookie = opened.headers.get("set-cookie")!;
+    const reset = await worker.fetch(request("/v2/reset", { version: "2" }, { cookie }), env);
+    expect(reset.status).toBe(200);
+    expect(reset.headers.get("set-cookie")).not.toBe(cookie);
+    expect(storage.put).toHaveBeenLastCalledWith("m4-v2-session", { version: "2", revoked: true });
+    const denied = await worker.fetch(request("/v2/session", undefined, { cookie }), env);
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ version: "2", code: "access_denied" });
+    expect(lookup.mock.calls[0][0]).toBe(lookup.mock.calls[2][0]);
+    expect(agent.state).toEqual(before);
+    expect((await worker.fetch(request("/proof/state", undefined, { cookie }), env)).status).toBe(200);
+  });
+  it("reconciles expired sessions once, fences work and permits only reset", async () => {
+    const { env, agent, tools, aiRun } = setup();
+    const storage = sessionStorage(agent);
+    const expires = new Date(Date.now() - 1000).toISOString();
+    const state: SessionStateV2 = {
+      ...initialSessionState(), selected_source: SALES_SOURCE, expires_at: expires,
+      active_job: {
+        job_id: crypto.randomUUID(), request_id: crypto.randomUUID(), input_sha256: "a".repeat(64),
+        source: SALES_SOURCE, generation: 0, cancel_epoch: 0, phase: "planning",
+        started_at: expires, deadline_at: new Date(Date.now() + 60_000).toISOString(),
+        active_run_id: crypto.randomUUID(), error: null, clarification: null,
+      },
+    };
+    let persisted: unknown = state;
+    storage.get.mockImplementation(async () => persisted);
+    storage.put.mockImplementation(async (_key: string, value: unknown) => { persisted = value; });
+    const read = await worker.fetch(request("/v2/session"), env);
+    expect(read.status).toBe(410);
+    const cookie = read.headers.get("set-cookie")!;
+    expect(await read.json()).toMatchObject({ version: "2", code: "session_expired" });
+    const expired = (persisted as { state: SessionStateV2 }).state;
+    expect(expired).toMatchObject({ expires_at: expires, selected_source: null, generation: 1, cancel_epoch: 1 });
+    expect(expired.active_job).toMatchObject({ phase: "interrupted", active_run_id: null });
+    expect(expired.request_journal).toHaveLength(1);
+    expect(expired.request_journal[0].terminal_code).toBe("expired");
+    expect(() => finishJob(expired, state.active_job!.job_id, 0, 0, { phase: "completed", error: null })).toThrow("stale_job");
+    for (const path of ["/v2/session", "/v2/source", "/v2/cancel"]) {
+      const body = path === "/v2/session" ? undefined : { version: "2", source: SALES_SOURCE };
+      const response = await worker.fetch(request(path, body, { cookie }), env);
+      expect(response.status).toBe(410);
+      expect(response.headers.get("set-cookie")).toBe(cookie);
+    }
+    expect(storage.put).toHaveBeenCalledTimes(1);
+    expect(tools).not.toHaveBeenCalled();
+    expect(aiRun).not.toHaveBeenCalled();
+    expect((await worker.fetch(request("/v2/reset", { version: "2" }), env)).status).toBe(200);
+  });
+  it("preserves corrupt v2 records and retains cookie identity when reset fails", async () => {
+    const { env, agent } = setup();
+    const storage = sessionStorage(agent);
+    for (const corrupt of [{ version: "2", secret: "sentinel" }, { version: "2", expired: true, state: null }]) {
+      storage.get.mockResolvedValue(corrupt);
+      const response = await worker.fetch(request("/v2/reset", { version: "2" }), env);
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toContain("sentinel");
+    }
+    storage.put.mockRejectedValueOnce(new Error("storage failure"));
+    storage.get.mockResolvedValue(undefined);
+    const opened = await worker.fetch(request("/v2/session"), env);
+    const cookie = opened.headers.get("set-cookie")!;
+    const failed = await worker.fetch(request("/v2/reset", { version: "2" }, { cookie }), env);
+    expect(failed.status).not.toBe(200);
+    expect(failed.headers.get("set-cookie")).toBe(cookie);
+    expect(storage.put).toHaveBeenCalledTimes(1);
   });
   it("persists server-only source/reset state and refuses support without calls", async () => {
     const { agent, env, tools } = setup();

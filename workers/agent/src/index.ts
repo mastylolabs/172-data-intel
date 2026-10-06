@@ -1,5 +1,6 @@
 import { Agent, type Connection } from "agents";
 import { DurableObject as DurableObjectBase } from "cloudflare:workers";
+import { z } from "zod";
 import {
   AGENTS_VERSION,
   agentRuntime,
@@ -16,6 +17,18 @@ import {
   type ProofReceipt,
   validatedResult,
 } from "./contracts";
+import {
+  cancelJob,
+  initialSessionState,
+  parseSessionState,
+  publicSnapshot,
+  resetSession,
+  selectSource,
+  sourceV2,
+  type SessionStateV2,
+} from "./v2-state";
+const v2SourceRequest = z.strictObject({ version: z.literal("2"), source: sourceV2 });
+const v2EmptyRequest = z.strictObject({ version: z.literal("2") });
 export interface Env {
   ProofAgent: DurableObjectNamespace<ProofAgent>;
   ProofBudget: DurableObjectNamespace<ProofBudget>;
@@ -112,6 +125,8 @@ const fail = (
     },
     status,
   );
+const failV2 = (code: string, status = 400, stage = "input"): Response =>
+  json({ version: "2", code, stage, job_id: null, run_id: null, limit: null, provider_reason: null, automatic_retry: false }, status);
 
 type BudgetState = { version: "1"; utc_day: string; model_calls: number };
 export class ProofBudget extends DurableObjectBase<Env> {
@@ -480,13 +495,106 @@ export class ProofAgent extends Agent<Env, State> {
     if (origin !== "server") throw new Error("access_denied");
   }
 
+  private async readV2State(allowExpired = false): Promise<SessionStateV2> {
+    const stored = await this.ctx.storage.get<unknown>("m4-v2-session");
+    if (stored === undefined) return initialSessionState();
+    const revoked = z.strictObject({ version: z.literal("2"), revoked: z.literal(true) });
+    if (revoked.safeParse(stored).success) throw new Error("access_denied");
+    const reconciled = z.strictObject({
+      version: z.literal("2"), expired: z.literal(true), state: z.unknown(),
+    }).safeParse(stored);
+    let state: SessionStateV2;
+    try {
+      state = parseSessionState(reconciled.success ? reconciled.data.state : stored);
+    } catch {
+      throw new Error("state_corrupt");
+    }
+    if (!reconciled.success && Date.parse(state.expires_at) > Date.now()) return state;
+    const expired = reconciled.success ? state : await this.expireV2State(state);
+    if (!allowExpired) throw new Error("session_expired");
+    return expired;
+  }
+
+  private async expireV2State(state: SessionStateV2): Promise<SessionStateV2> {
+    const renewed = resetSession(state);
+    const job = state.active_job;
+    const expired = parseSessionState({
+      ...renewed,
+      expires_at: state.expires_at,
+      active_job: job ? {
+        ...job,
+        phase: "interrupted",
+        generation: renewed.generation,
+        cancel_epoch: renewed.cancel_epoch,
+        active_run_id: null,
+        error: null,
+        clarification: null,
+      } : null,
+      request_journal: job ? [{
+        request_id: job.request_id,
+        input_sha256: job.input_sha256,
+        job_id: job.job_id,
+        terminal_code: "expired",
+        publication_id: null,
+      }] : [],
+    });
+    const record = { version: "2", expired: true, state: expired };
+    if (new TextEncoder().encode(JSON.stringify(record)).byteLength > 65_536) {
+      throw new Error("state_limit");
+    }
+    await this.ctx.storage.put("m4-v2-session", record);
+    return expired;
+  }
+
+  private async writeV2State(state: SessionStateV2): Promise<Response> {
+    const parsed = parseSessionState(state);
+    await this.ctx.storage.put("m4-v2-session", parsed);
+    return json(publicSnapshot(parsed));
+  }
+
+  private async onV2Request(request: Request, path: string): Promise<Response> {
+    const state = await this.readV2State(path === "/v2/reset");
+    if (request.method === "GET" && path === "/v2/session") return json(publicSnapshot(state));
+    if (request.method !== "POST") return failV2("not_found", 404);
+    const body = await boundedJson(request, 4096);
+    if (path === "/v2/source") {
+      const parsed = v2SourceRequest.parse(body);
+      return this.writeV2State(selectSource(state, parsed.source));
+    }
+    if (path === "/v2/reset") {
+      v2EmptyRequest.parse(body);
+      await this.ctx.storage.put("m4-v2-session", { version: "2", revoked: true });
+      return json(publicSnapshot(resetSession(state)));
+    }
+    if (path === "/v2/cancel") {
+      v2EmptyRequest.parse(body);
+      return this.writeV2State(cancelJob(state));
+    }
+    return failV2("not_found", 404);
+  }
+
   async onRequest(request: Request): Promise<Response> {
     const stored = this.state as Partial<State>;
     if (!Array.isArray(stored.model_starts) || !Array.isArray(stored.request_journal) || stored.plan === undefined) {
       this.setState(normalizeState(stored));
     }
     const path = new URL(request.url).pathname;
-    if (this.state.revoked) return fail("access_denied", 403);
+    if (this.state.revoked) return path.startsWith("/v2/") ? failV2("access_denied", 403) : fail("access_denied", 403);
+    if (path.startsWith("/v2/")) {
+      if (this.busy) return failV2("request_conflict", 409);
+      this.busy = true;
+      try {
+        return await this.onV2Request(request, path);
+      } catch (error) {
+        if (error instanceof Error && error.message === "access_denied") return failV2("access_denied", 403);
+        if (error instanceof Error && error.message === "session_expired") return failV2("session_expired", 410, "transport");
+        if (error instanceof Error && error.message === "state_corrupt") return failV2("runtime_incompatible", 503, "transport");
+        if (error instanceof Error && error.message === "state_limit") return failV2("state_limit", 413, "input");
+        return failV2("invalid_input", 400, "input");
+      } finally {
+        this.busy = false;
+      }
+    }
     if (request.method === "GET" && path === "/proof/state") return json(visibleState(this.state));
     if (request.method !== "POST") return fail("not_found", 404);
     if (path === "/proof/query") return fail("unsupported_transport", 422);
@@ -539,28 +647,35 @@ const proofRoutes = new Set([
   "/proof/plan",
   "/proof/reset",
   "/proof/query",
+  "/v2/session",
+  "/v2/source",
+  "/v2/reset",
+  "/v2/cancel",
 ]);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/proof/")) return fail("not_found", 404);
+    const isV2 = url.pathname.startsWith("/v2/");
+    if (!url.pathname.startsWith("/proof/") && !url.pathname.startsWith("/v2/")) {
+      return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
+    }
     if (
       new TextEncoder().encode(env.PROOF_TOKEN ?? "").byteLength < 32 ||
       request.headers.get("authorization") !== `Bearer ${env.PROOF_TOKEN}`
     ) {
-      return fail("access_denied", 403);
+      return isV2 ? failV2("access_denied", 403) : fail("access_denied", 403);
     }
-    if (request.headers.has("upgrade")) return fail("access_denied", 403);
+    if (request.headers.has("upgrade")) return isV2 ? failV2("access_denied", 403) : fail("access_denied", 403);
     if (request.method !== "GET" && request.headers.get("origin") !== url.origin) {
-      return fail("access_denied", 403);
+      return isV2 ? failV2("access_denied", 403) : fail("access_denied", 403);
     }
-    if (!proofRoutes.has(url.pathname)) return fail("not_found", 404);
-    if (request.method !== (url.pathname === "/proof/state" ? "GET" : "POST")) {
-      return fail("not_found", 404);
+    if (!proofRoutes.has(url.pathname)) return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
+    if (request.method !== (["/proof/state", "/v2/session"].includes(url.pathname) ? "GET" : "POST")) {
+      return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
     }
     const currentToken = sessionToken(request);
-    const token = url.pathname === "/proof/reset" ? randomToken() : currentToken;
+    const token = ["/proof/reset", "/v2/reset"].includes(url.pathname) ? randomToken() : currentToken;
     const id = env.ProofAgent.idFromName(await sha256(currentToken));
     const forwardHeaders = new Headers(request.headers);
     forwardHeaders.delete("authorization");
