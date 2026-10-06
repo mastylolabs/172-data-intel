@@ -82,6 +82,8 @@ describe("v2 durable session state", () => {
     const state = initialSessionState(new Date(now));
     const { request_journal: _journal, generation: _generation, cancel_epoch: _epoch, ...publicState } = state;
     expect(publicSnapshot(state)).toEqual(publicState);
+    expect("request_journal" in publicSnapshot(state)).toBe(false);
+    expect(beginJob(state, job())).toEqual({ kind: "conflict", code: "source_mismatch" });
     expect(() => parseSessionState({ ...state, history: [{
       answer_id: JOB_ID,
       source: SALES_SOURCE,
