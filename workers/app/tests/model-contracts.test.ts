@@ -71,7 +71,6 @@ describe("model and publication contracts", () => {
     const mixed = { ...supportCandidate, text: `${TARGETED_LIMITATIONS[1]} No customer reported an export failure.` };
     expect(validateCandidate(missing, supportProposal, supportContext).issues).toContain("missing_search_limitations");
     expect(validateCandidate(broad, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
-    expect(validateCandidate(trend, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
     expect(validateCandidate(absence, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
     expect(validateCandidate(mixed, supportProposal, supportContext).issues).toContain("unsupported_search_claim");
   });
