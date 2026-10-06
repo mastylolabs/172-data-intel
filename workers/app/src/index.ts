@@ -189,7 +189,9 @@ async function admitPlannerBudget(env: Env): Promise<boolean> {
   const token = env.PLANNER_BUDGET_TOKEN;
   if (token === undefined || new TextEncoder().encode(token).byteLength < 32) throw new Error("budget_unavailable");
   const response = await env.AGENT.fetch(new Request("https://agent/internal/planner-budget", {
-    method: "POST", body: JSON.stringify({ version: "1" }), headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    method: "POST", body: JSON.stringify({ version: "1" }),
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    signal: AbortSignal.timeout(2_000),
   }));
   if (!response.ok) throw new Error("budget_unavailable");
   const value = JSON.parse(await readBoundedText(response.body, 1024, 502)) as { admitted?: unknown };
