@@ -35,10 +35,11 @@
   no billing change or false live-success claim.
 - M3 active: P1's distinct 24-row sales-demo fixture and strict immutable loader
   are reviewed and merged, as are P2a's strict sales profile receipt models and
-  bounded canonical serialization. P2b adds deterministic whole-source profiling,
-  canonical payload hashes and deadline/failure checks; complete its independent
-  QA/review and guarded merge before dependent generic-engine integration.
-  Explicit generic-engine integration, support loading/retrieval and typed
+  bounded canonical serialization and P2b's deterministic whole-source profiling,
+  canonical payload hashes and deadline/failure checks. P2c enables approved demo
+  SQL through an explicit trusted engine opt-in, retaining proof-only defaults
+  for v1 service callers. Complete independent QA/review and guarded merge.
+  Support loading/retrieval, private v2 service exposure and typed
   deterministic validation remain later bounded slices.
 - M4–M5, planned: real SQL/retrieval and
   deterministic validation; independently validated durable conversations;

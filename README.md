@@ -91,11 +91,22 @@ bounded canonical payload without changing its version-2 fields. A 100-ms
 monotonic deadline starts before loading, checks each record and before success;
 the 256-record, signed-int64 and complete 4,096-byte output ceilings refuse
 without partial results. These are defensive limits, not measured deployed
-latency. Query capabilities remain empty and analytical validation remains false.
+latency. The profile advertises the implemented private query capability;
+analytical validation remains false.
 
 ```sh
 uv run python -c 'from data_intel.sales_profile import profile_sales_demo; print(profile_sales_demo().measures)'
 ```
+
+M3-P2c enables generic demo SQL through the trusted Python constructor
+`SQLiteQueryEngine(allow_demo_source=True)`. Each intent selects one full approved
+proof/demo identity before file access, in a fresh isolated in-memory context;
+the unchanged SQLite policy and result limits apply to both. Receipts retain
+the actual SQL/hash and selected source/schema. The default constructor remains
+proof-only and rejects the demo before opening a context, preserving the current
+v1 service and TypeScript consumers. A later private v2 caller must explicitly
+opt in; this slice adds no route or model integration. SQL/result correctness
+does not establish analytical approval.
 
 The private `_sales_context.py` module opens a fresh literal `:memory:` database only
 after the verified loader succeeds, loads the fixed sales schema with bound values,
