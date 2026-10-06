@@ -121,3 +121,9 @@ ordinary timestamp check does not track local source edits.
 The older Wrangler 4.11.1 returned a false-success bundle without vendored
 modules; use the pinned package and lockfile. Deployed runtime controls still
 need a reviewed probe.
+
+The [Agent wire foundation](workers/agent/README.md) adds pinned TypeScript tooling,
+strict private Python response validation, exact hash parity and bounded JSON
+stream helpers. `make gate` also runs its clean npm install, typecheck and Vitest
+tests through `make typescript-gate`. Native Agent routing, sessions, private
+service calls and Wrangler/deployment configuration belong to the next reviewed slice.

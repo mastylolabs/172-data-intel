@@ -25,7 +25,9 @@
   source sync and checks exact vendored Python bytes. Private Python `/health`,
   `/metadata`, and bounded `/query` routes now have local contract/stream tests
   but no deployed service-binding proof. P3a is reviewed and merged. Next:
-  build the native Agent bridge for deployed SQL/control receipts, followed
+  complete the P3b-1 TypeScript wire-validation foundation, then the dependent
+  P3b-2 native Agent/session/service bridge after foundation review and merge;
+  async lifecycle/budgets and deployed SQL/control receipts remain pending, followed
   by Llama 3.3 integration with persistent isolated state. Target-runtime
   compatibility remains unverified. A
   bounded Llama access preflight failed with daily free allocation rejection; real
