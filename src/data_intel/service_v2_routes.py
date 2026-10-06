@@ -20,7 +20,7 @@ from data_intel.service_v2_contracts import (
     payload_sha256,
 )
 
-V2_BODY_BYTES = 8_192
+PROFILE_BODY_BYTES = 1_024
 V2_RESULT_BYTES = 16_384
 V2Stage = Literal["input", "catalog", "profile", "transport"]
 
@@ -63,8 +63,8 @@ def runtime_provenance_v2_from_bindings(
             worker_version_id=parsed_id,
             service_contract_revision="m4-service.v1",
         )
-    except (TypeError, ValueError, ValidationError) as error:
-        raise V2RuntimeProvenanceError("runtime_incompatible") from error
+    except (TypeError, ValueError, ValidationError):
+        raise V2RuntimeProvenanceError("runtime_incompatible") from None
 
 
 def _error(
@@ -144,7 +144,7 @@ def _envelope(
 
 
 def _request(body: bytes) -> ToolRequestV2:
-    if len(body) > V2_BODY_BYTES:
+    if len(body) > PROFILE_BODY_BYTES:
         raise ValueError("result_limit")
     return ToolRequestV2.model_validate_json(body)
 
@@ -160,7 +160,7 @@ def _validation_error_code(error: ValidationError) -> ServiceErrorCodeV2:
 
 def _execute_profile(request: ToolRequestV2, runtime: RuntimeProvenanceV2) -> tuple[int, bytes]:
     if request.source.source_id != SourceId.SALES:
-        return _error("unsupported_source", "profile", request.job_id, request.run_id)
+        return _error("capability_mismatch", "profile", request.job_id, request.run_id)
     try:
         profile = profile_sales_demo(request.source)
         canonical_profile_json(profile)

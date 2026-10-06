@@ -53,6 +53,10 @@ def test_profile_route_executes_real_profile_and_preserves_ids() -> None:
     wire["payload_sha256"] = "0" * 64
     with pytest.raises(ValidationError, match="invalid_result"):
         ServiceEnvelopeV2[DataProfileV2].model_validate(wire)
+    raw = _request(DEMO_SOURCE)
+    padded = raw + b" " * (1025 - len(raw))
+    status, _ = handle_service_v2("POST", "/v2/profile", padded, _runtime())
+    assert status == 413
 
 
 def test_profile_route_refuses_support_and_mutated_source() -> None:
@@ -60,7 +64,7 @@ def test_profile_route_refuses_support_and_mutated_source() -> None:
     from data_intel.support_demo import SUPPORT_SOURCE
 
     status, body = handle_service_v2("POST", "/v2/profile", _request(SUPPORT_SOURCE), _runtime())
-    assert status == 422 and json.loads(body)["code"] == "unsupported_source"
+    assert status == 422 and json.loads(body)["code"] == "capability_mismatch"
     changed = DEMO_SOURCE.model_copy(update={"snapshot_sha256": "0" * 64})
     status, body = handle_service_v2("POST", "/v2/profile", _request(changed), _runtime())
     assert status == 409 and json.loads(body)["code"] == "source_mismatch"
@@ -70,7 +74,7 @@ def test_profile_route_refuses_support_and_mutated_source() -> None:
     "method,path,body,status",
     [
         ("POST", "/v2/profile", b"{}", 400),
-        ("POST", "/v2/profile", b"x" * 8193, 413),
+        ("POST", "/v2/profile", b"x" * 1025, 413),
         ("GET", "/metadata", b"", 404),
     ],
 )
@@ -83,8 +87,9 @@ def test_v2_routes_refuse_malformed_oversized_and_cross_version_requests(
 
 
 def test_runtime_provenance_requires_deployed_bindings() -> None:
-    with pytest.raises(ValueError, match="runtime_incompatible"):
+    with pytest.raises(ValueError, match="runtime_incompatible") as failure:
         runtime_provenance_v2_from_bindings("deployed", None, None, "3.12.7", "3.46.1")
+    assert failure.value.__cause__ is None
     deployed = runtime_provenance_v2_from_bindings(
         "deployed",
         "ef8eac322f95580c5c717cdef2c9eabdf7f55ff2",
