@@ -4,6 +4,7 @@ import json
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from data_intel.catalog_v2 import CatalogV2
 from data_intel.contracts import SourceIdentity
@@ -48,6 +49,10 @@ def test_profile_route_executes_real_profile_and_preserves_ids() -> None:
     envelope = ServiceEnvelopeV2[DataProfileV2].model_validate_json(body)
     assert envelope.job_id == JOB and envelope.payload.record_count == 24
     assert envelope.payload.source == DEMO_SOURCE
+    wire = json.loads(body)
+    wire["payload_sha256"] = "0" * 64
+    with pytest.raises(ValidationError, match="invalid_result"):
+        ServiceEnvelopeV2[DataProfileV2].model_validate(wire)
 
 
 def test_profile_route_refuses_support_and_mutated_source() -> None:
