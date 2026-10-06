@@ -119,6 +119,8 @@ const verdictClaim = z.strictObject({
 export const validatorVerdict = z.strictObject({
   version: z.literal("1"),
   request_id: uuid,
+  job_id: uuid.optional(), run_id: uuid.optional(), source: approvedSource.optional(), candidate_id: uuid.optional(), plan_sha256: digest.optional(), validator_input_sha256: digest.optional(),
+  validator_call: z.enum(["performed", "failed"]).optional(), model_id: text(128).optional(), prompt_revision: text(64).optional(), report_sha256: digest.optional(),
   overall: z.enum(["pass", "fail", "needs_clarification"]),
   deterministic_pass: z.boolean(),
   candidate_sha256: digest,

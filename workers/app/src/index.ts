@@ -6,7 +6,9 @@ import {
   sourceRequest, type ResultKind, type TransportEnv,
 } from "./transport";
 import { runPlanner, type ModelEnv, type PlannerFailure, type PlannerResult } from "./model_gateway";
-import { analystProposal, type AnalystProposal } from "./model_contracts";
+import { analystProposal, validateCandidate, type AnalystProposal } from "./model_contracts";
+import { buildEvidence, buildLineage, buildPublication, publicationEvidence, publicationIdentity, publicationLineage, publicationOutcome, publishAnswer, runValidator, type PublicationOutcome } from "./publication";
+import { payloadSha256 } from "./policy";
 import {
   beginJob, cancelJob, finishJob, initialSessionState, parseSessionState, publicSnapshot,
   resetSession, selectSource, storeJob, type JobV2, type SessionStateV2,
@@ -26,10 +28,11 @@ type PlannerOutcome =
   | { kind: "clarification"; proposal: AnalystProposal; question: string }
   | { kind: "failure"; code: PlannerFailure["code"] | "budget_exhausted"; provider_reason: string | null };
 export type PlannerState = { request_id: string; job_id: string; source: Source; generation: number; cancel_epoch: number; result: PlannerOutcome };
-type Outcome = { request_id: string; input_sha256: string; kind: JobKind; snapshot: PublicState };
+export type PublicationState = { request_id: string; job_id: string; source: Source; generation: number; cancel_epoch: number; identity: z.infer<typeof publicationIdentity>; lineage: z.infer<typeof publicationLineage> | null; evidence: z.infer<typeof publicationEvidence> | null; result: PublicationOutcome };
+type Outcome = { request_id: string; input_sha256: string; kind: JobKind; generation: number; cancel_epoch: number; snapshot: PublicState };
 export type BridgeState = {
   version: "1"; session: SessionStateV2; result: Envelope<unknown> | null; result_kind: ResultKind | null;
-  revoked: boolean; expired: boolean; outcomes: Outcome[]; planner: PlannerState | null; model_calls: number;
+  revoked: boolean; expired: boolean; outcomes: Outcome[]; planner: PlannerState | null; publication: PublicationState | null; model_calls: number;
 };
 type JobRequest = { kind: JobKind; body: Record<string, unknown> };
 type AgentStub = { fetch(request: Request): Promise<Response> };
@@ -49,13 +52,17 @@ const plannerStateSchema = z.strictObject({
     z.strictObject({ kind: z.literal("failure"), code: z.enum(["execution_limit", "model_output_invalid", "model_quota", "model_unavailable", "budget_exhausted"]), provider_reason: z.enum(["daily_free_allocation", "account_limited", "out_of_capacity", "unknown"]).nullable() }),
   ]),
 });
+const publicationStateSchema = z.strictObject({
+  request_id: z.uuid(), job_id: z.uuid(), source: approvedSource,
+  generation: z.number().int().nonnegative(), cancel_epoch: z.number().int().nonnegative(), identity: publicationIdentity, lineage: publicationLineage.nullable(), evidence: publicationEvidence.nullable(), result: publicationOutcome,
+});
 const json = (value: unknown, status = 200): Response => Response.json(value, {
   status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" },
 });
 const errorResponse = (error: BridgeError): Response => json({ version: "2", code: error.code }, error.status);
 function initialBridgeState(): BridgeState {
   return { version: "1", session: initialSessionState(), result: null, result_kind: null,
-    revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 };
+    revoked: false, expired: false, outcomes: [], planner: null, publication: null, model_calls: 0 };
 }
 function parsePlannerState(value: unknown): PlannerState {
   const parsed = plannerStateSchema.parse(value);
@@ -78,31 +85,48 @@ function parseBridgeState(value: unknown): BridgeState {
       if (typeof item !== "object" || item === null) return true;
       const outcome = item as Record<string, unknown>;
       const snapshot = outcome.snapshot;
-      return typeof outcome.request_id !== "string" || typeof outcome.input_sha256 !== "string" ||
+      return typeof outcome.request_id !== "string" || typeof outcome.input_sha256 !== "string" || typeof outcome.generation !== "number" || typeof outcome.cancel_epoch !== "number" ||
         !["profile", "query", "search", "ask"].includes(String(outcome.kind)) ||
         typeof snapshot !== "object" || snapshot === null || Array.isArray(snapshot);
     })) throw new Error("outcomes");
     const planner = raw.planner === undefined || raw.planner === null ? null : parsePlannerState(raw.planner);
-    if (new TextEncoder().encode(JSON.stringify({ result, outcomes, planner })).byteLength > 65_536) throw new Error("limit");
+    const publication = raw.publication === undefined || raw.publication === null ? null : publicationStateSchema.parse(raw.publication);
+    if (new TextEncoder().encode(JSON.stringify({ result, outcomes, planner, publication })).byteLength > 65_536) throw new Error("limit");
     if (planner !== null) {
       const active = parseSessionState(raw.session).active_job;
       if (active === null || planner.job_id !== active.job_id || planner.request_id !== active.request_id ||
         planner.generation !== active.generation || planner.cancel_epoch !== active.cancel_epoch || !sameSource(planner.source, active.source)) throw new Error("planner_owner");
     }
+    if (publication !== null) {
+      const active = parseSessionState(raw.session).active_job;
+      if (active === null || publication.job_id !== active.job_id || publication.request_id !== active.request_id ||
+        publication.generation !== active.generation || publication.cancel_epoch !== active.cancel_epoch || !sameSource(publication.source, active.source)) throw new Error("publication_owner");
+      if ((publication.lineage === null) !== (publication.evidence === null) || (publication.result.kind === "published" && (publication.lineage === null || publication.identity.candidate_sha256 === null || publication.identity.validator_input_sha256 === null || publication.identity.validator_report_sha256 === null || publication.result.answer.request_id !== publication.request_id || publication.result.answer.answer_id !== publication.identity.publication_id || !sameSource(publication.result.answer.source, publication.source)))) throw new Error("publication_binding");
+    }
     const modelCalls = raw.model_calls === undefined ? 0 : raw.model_calls;
     if (typeof modelCalls !== "number" || !Number.isInteger(modelCalls) || modelCalls < 0 || modelCalls > MODEL_CALL_BUDGET) throw new Error("model_calls");
     return { version: "1", session: parseSessionState(raw.session), result, result_kind: kind,
-      revoked: raw.revoked, expired: raw.expired, outcomes: outcomes as Outcome[], planner, model_calls: modelCalls };
+      revoked: raw.revoked, expired: raw.expired, outcomes: outcomes as Outcome[], planner, publication, model_calls: modelCalls };
   } catch { throw new BridgeError("state_corrupt", 503); }
 }
 function publicState(state: BridgeState): PublicState {
   return { ...publicSnapshot(state.session), last_result: state.result, planner: state.planner,
-    model_calls: state.model_calls, model_calls_remaining: MODEL_CALL_BUDGET - state.model_calls };
+    publication: state.publication, model_calls: state.model_calls, model_calls_remaining: MODEL_CALL_BUDGET - state.model_calls };
+}
+async function checkPublicationEvidence(env: Env, publication: PublicationState, runId: string | null): Promise<void> {
+  if (publication.evidence === null) { if (publication.lineage !== null) throw new Error("publication_evidence"); return; }
+  const lineage = await buildLineage(publication.evidence.context); const receipt = publication.evidence.execution;
+  const result = publication.evidence.context.results.find((item) => item.receipt_id === receipt.receipt_id);
+  if (JSON.stringify(lineage) !== JSON.stringify(publication.lineage) || result?.payload_sha256 !== receipt.payload_sha256 || receipt.job_id !== publication.job_id || receipt.run_id !== publication.identity.run_id || (runId !== null && receipt.run_id !== runId) || !sameSource(receipt.payload.source, publication.source) || !trustedRuntime(env, receipt)) throw new Error("publication_evidence");
+  if (publication.evidence.meanings.catalog === null || !publication.evidence.meanings.catalog.entries.some((entry) => sameSource(entry.source, publication.source)) || (publication.source.source_id === "sales" && publication.evidence.meanings.profile === null)) throw new Error("publication_meanings");
+  await validatedDomainEnvelope(receipt.payload.source.source_id === "sales" ? "query" : "search", receipt);
 }
 async function validState(agent: AppAgent): Promise<BridgeState> {
   const state = parseBridgeState(agent.state);
   try {
     if (state.result !== null && state.result_kind !== null) await validatedDomainEnvelope(state.result_kind, state.result);
+    const env = (agent as unknown as { env: Env }).env;
+    if (state.publication !== null) await checkPublicationEvidence(env, state.publication, state.session.active_job?.active_run_id ?? null);
     for (const outcome of state.outcomes) {
       const active = outcome.snapshot.active_job as Record<string, unknown> | null;
       if (active === null || active.request_id !== outcome.request_id ||
@@ -111,6 +135,12 @@ async function validState(agent: AppAgent): Promise<BridgeState> {
         if (outcome.snapshot.planner === null) throw new Error("outcome_planner");
         const planner = parsePlannerState(outcome.snapshot.planner);
         if (planner.request_id !== outcome.request_id || planner.job_id !== active.job_id) throw new Error("outcome_planner_owner");
+        if (outcome.snapshot.publication !== null) {
+          const publication = publicationStateSchema.parse(outcome.snapshot.publication);
+          if (publication.request_id !== outcome.request_id || publication.job_id !== active.job_id || !sameSource(publication.source as Source, active.source as Source) || (publication.result.kind === "published" && publication.evidence === null)) throw new Error("outcome_publication_owner");
+          if (publication.generation !== outcome.generation || publication.cancel_epoch !== outcome.cancel_epoch || (publication.result.kind === "published" && (publication.result.answer.request_id !== publication.request_id || !sameSource(publication.result.answer.source, publication.source)))) throw new Error("outcome_publication_fence");
+          await checkPublicationEvidence(env, publication, typeof active.active_run_id === "string" ? active.active_run_id : null);
+        }
       }
       if (outcome.kind !== "ask" && outcome.snapshot.last_result !== null) {
         const envelope = await validatedDomainEnvelope(outcome.kind, outcome.snapshot.last_result);
@@ -121,11 +151,11 @@ async function validState(agent: AppAgent): Promise<BridgeState> {
   } catch { throw new BridgeError("state_corrupt", 503); }
 }
 function remember(state: BridgeState, job: JobV2, kind: ResultKind): BridgeState {
-  const outcome = { request_id: job.request_id, input_sha256: job.input_sha256, kind, snapshot: publicState(state) };
+  const outcome = { request_id: job.request_id, input_sha256: job.input_sha256, kind, generation: job.generation, cancel_epoch: job.cancel_epoch, snapshot: publicState(state) };
   return { ...state, outcomes: [...state.outcomes.filter((item) => item.request_id !== job.request_id), outcome].slice(-2) };
 }
 function rememberPlanner(state: BridgeState, job: JobV2): BridgeState {
-  const outcome = { request_id: job.request_id, input_sha256: job.input_sha256, kind: "ask" as const, snapshot: publicState(state) };
+  const outcome = { request_id: job.request_id, input_sha256: job.input_sha256, kind: "ask" as const, generation: job.generation, cancel_epoch: job.cancel_epoch, snapshot: publicState(state) };
   return { ...state, outcomes: [...state.outcomes.filter((item) => item.request_id !== job.request_id), outcome].slice(-2) };
 }
 function ownsPlannerJob(state: BridgeState, job: JobV2): boolean {
@@ -208,7 +238,7 @@ function reconcileDeadline(state: BridgeState): BridgeState {
   try {
     const session = finishJob(state.session, active.job_id, active.generation, active.cancel_epoch,
       { phase: active.phase === "cancel_requested" ? "cancelled" : "interrupted", error: { code: "stale_job", stage: "transport" } });
-    return { ...state, session, result: null, result_kind: null, planner: null };
+    return { ...state, session, result: null, result_kind: null, planner: null, publication: null };
   } catch { return state; }
 }
 
@@ -243,6 +273,45 @@ export class AppAgent extends Agent<Env, BridgeState> {
         this.setState(remember({ ...current, session: finished, result: null, result_kind: null }, job, request.kind));
       } catch { /* reset, cancellation, or stale completion */ }
     }
+  }
+  private async completePublication(job: JobV2, proposal: AnalystProposal, question: string, catalog: z.infer<typeof catalogV2>, profile: z.infer<typeof dataProfileV2> | null): Promise<{ outcome: PublicationOutcome; identity: z.infer<typeof publicationIdentity>; lineage: z.infer<typeof publicationLineage> | null; evidence: z.infer<typeof publicationEvidence> | null } | null> {
+    const identity: z.infer<typeof publicationIdentity> = { publication_id: crypto.randomUUID(), run_id: job.active_run_id ?? crypto.randomUUID(), candidate_id: null, candidate_sha256: null, plan_sha256: await payloadSha256(proposal), validator_input_sha256: null, validator_report_sha256: null, validator_call_id: null, validator_call: null, model_id: null, prompt_revision: null };
+    const refused = (code: "deterministic_failed" | "validator_failed") => ({ outcome: { kind: "refusal" as const, code }, identity, lineage: null, evidence: null });
+    if (proposal.mode !== "query" && proposal.mode !== "search") return refused("deterministic_failed");
+    const runId = job.active_run_id;
+    if (runId === null) return refused("deterministic_failed");
+    const body = proposal.mode === "query"
+      ? { question, sql: proposal.sql, max_rows: 20 }
+      : { query: proposal.query, channel: proposal.channel, customer: proposal.customer, start: proposal.start, end: proposal.end, max_hits: 5 };
+    let receipt: Envelope<unknown>;
+    try { receipt = await executeTool(this.env, proposal.mode, buildToolBody(proposal.mode, job.job_id, runId, job.source, body), { jobId: job.job_id, runId }); }
+    catch { return refused("deterministic_failed"); }
+    let current = await validState(this);
+    if (!ownsPlannerJob(current, job)) return null;
+    if (!trustedRuntime(this.env, receipt)) return refused("deterministic_failed");
+    const built = buildPublication(proposal, receipt);
+    const evidence = built === null ? null : buildEvidence(built.context, receipt, { catalog, profile });
+    if (built === null || evidence === null) return refused("deterministic_failed");
+    identity.candidate_id = crypto.randomUUID(); identity.candidate_sha256 = await payloadSha256(built.candidate);
+    const deterministic = validateCandidate(built.candidate, proposal, built.context);
+    const lineage = await buildLineage(built.context);
+    if (!deterministic.ok) return { ...refused("deterministic_failed"), lineage, evidence };
+    if (current.model_calls >= MODEL_CALL_BUDGET) return { ...refused("validator_failed"), lineage, evidence };
+    try {
+      if (!(await admitPlannerBudget(this.env))) return { ...refused("validator_failed"), lineage, evidence };
+    } catch { return { ...refused("validator_failed"), lineage, evidence }; }
+    current = await validState(this);
+    if (!ownsPlannerJob(current, job)) return null;
+    this.setState({ ...current, model_calls: current.model_calls + 1 });
+    identity.validator_call_id = crypto.randomUUID();
+    const verdict = await runValidator(this.env, { question, proposal, context: built.context, meanings: { catalog, profile }, execution: evidence.execution, candidate: built.candidate, deterministic, job_id: job.job_id, run_id: runId, source: job.source, candidate_id: identity.candidate_id, validator_call_id: identity.validator_call_id });
+    current = await validState(this);
+    if (!ownsPlannerJob(current, job)) return null;
+    identity.validator_input_sha256 = verdict?.validator_input_sha256 ?? null;
+    identity.validator_report_sha256 = verdict?.report_sha256 ?? null;
+    identity.validator_call_id = verdict?.validator_call_id ?? null; identity.validator_call = verdict === null ? "failed" : "performed";
+    identity.model_id = verdict?.model_id ?? null; identity.prompt_revision = verdict?.prompt_revision ?? null;
+    return { outcome: await publishAnswer(proposal, built.candidate, verdict, built.context, deterministic.ok, identity.publication_id), identity, lineage, evidence };
   }
   private async completePlanner(job: JobV2, question: string): Promise<void> {
     try {
@@ -281,11 +350,19 @@ export class AppAgent extends Agent<Env, BridgeState> {
       if (!ownsPlannerJob(current, job)) return;
       const planned = plannerState(job, result);
       const phase = result.kind === "success" && result.proposal.status === "clarify" ? "awaiting_clarification" : result.kind === "failure" ? "failed" : "completed";
+      let publication: PublicationState | null = null;
+      if (result.kind === "success" && result.proposal.status === "plan") {
+        const outcome = await this.completePublication(job, result.proposal, question, catalog, profile);
+        if (outcome === null) return;
+        publication = { request_id: job.request_id, job_id: job.job_id, source: job.source,
+          generation: job.generation, cancel_epoch: job.cancel_epoch, identity: outcome.identity, lineage: outcome.lineage, evidence: outcome.evidence, result: outcome.outcome };
+        current = await validState(this);
+      }
       const session = result.kind === "success" && result.proposal.status === "clarify"
-        ? parseSessionState({ ...current.session, active_job: { ...current.session.active_job!, clarification: { question: result.proposal.clarification!, created_at: new Date().toISOString() } } })
+        ? parseSessionState({ ...current.session, active_job: { ...current.session.active_job!, clarification: { question: result.proposal.clarification!, created_at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString() } } })
         : current.session;
-      const finished = finishJob(session, job.job_id, job.generation, job.cancel_epoch, { phase, error: null });
-      this.setState(rememberPlanner({ ...current, session: finished, planner: planned }, job));
+      const terminal = finishJob(session, job.job_id, job.generation, job.cancel_epoch, { phase, error: null });
+      this.setState(rememberPlanner({ ...current, session: terminal, planner: planned, publication }, job));
     } catch {
       try {
         const current = await validState(this);
@@ -294,7 +371,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
         this.setState(rememberPlanner({ ...current, session: finished, planner: {
           request_id: job.request_id, job_id: job.job_id, source: job.source, generation: job.generation,
           cancel_epoch: job.cancel_epoch, result: { kind: "failure", code: "model_unavailable", provider_reason: "unknown" },
-        } }, job));
+        }, publication: null }, job));
       } catch { /* reset, cancellation, or stale completion */ }
     }
   }
@@ -313,7 +390,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
       throw new BridgeError("request_outcome_unavailable", 409);
     }
     if (outcome.kind !== "new") throw new BridgeError(outcome.code, 409);
-    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null, planner: null });
+    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null, planner: null, publication: null });
     this.ctx.waitUntil(this.complete(job, request));
     return json(publicState(this.state), 202);
   }
@@ -331,7 +408,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
       throw new BridgeError("request_outcome_unavailable", 409);
     }
     if (outcome.kind !== "new") throw new BridgeError(outcome.code, 409);
-    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null, planner: null });
+    this.setState({ ...state, session: storeJob(state.session, job), result: null, result_kind: null, planner: null, publication: null });
     this.ctx.waitUntil(this.completePlanner(job, String(body.question)));
     return json(publicState(this.state), 202);
   }
@@ -344,7 +421,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
       if (state.revoked) throw new BridgeError("access_denied", 403);
       if (state.expired && path !== "/api/reset") throw new BridgeError("session_expired", 410);
       if (Date.parse(state.session.expires_at) <= Date.now() && path !== "/api/reset") {
-        this.setState({ ...state, session: expiredSession(state.session), result: null, result_kind: null, planner: null, expired: true });
+        this.setState({ ...state, session: expiredSession(state.session), result: null, result_kind: null, planner: null, publication: null, expired: true });
         throw new BridgeError("session_expired", 410);
       }
       const reconciled = reconcileDeadline(state);
@@ -352,7 +429,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
       if (path === "/api/state" && request.method === "GET") return json(publicState(state));
       if (path === "/api/reset" && request.method === "POST") {
         emptyBody.parse(await readJson(request, 1024));
-        this.setState({ ...state, session: resetSession(state.session), revoked: true, expired: false, result: null, result_kind: null, planner: null, model_calls: 0, outcomes: [] });
+        this.setState({ ...state, session: resetSession(state.session), revoked: true, expired: false, result: null, result_kind: null, planner: null, publication: null, model_calls: 0, outcomes: [] });
         return json(publicState(initialBridgeState()));
       }
       if (path === "/api/cancel" && request.method === "POST") {
@@ -370,7 +447,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
         const catalog = await executeTool(this.env, "catalog", null, null);
         const entries = (catalog.payload as { entries: Array<{ source: Source }> }).entries;
         if (!entries.some((entry) => sameSource(entry.source, parsed.source))) throw new BridgeError("source_mismatch", 409);
-        this.setState({ ...state, session: selectSource(state.session, parsed.source), result: null, result_kind: null, planner: null });
+        this.setState({ ...state, session: selectSource(state.session, parsed.source), result: null, result_kind: null, planner: null, publication: null });
         return json(publicState(this.state));
       }
       if (path === "/api/ask") {

@@ -18,34 +18,69 @@ const search = { version: "2", source: support, schema_revision: "support-demo.v
 const queryLimits = { max_sql_bytes: 8000, max_rows: 20, max_columns: 16, max_column_bytes: 64, max_text_bytes: 256, max_result_bytes: 16384, progress_interval: 100, max_progress_callbacks: 500, query_deadline_ms: 250, sqlite_heap_bytes: 8388608, sqlite_limits: { sql_length: 8000, length: 65536, column: 16, expr_depth: 30, compound_select: 8, vdbe_op: 10000, function_arg: 8, attached: 0, like_pattern_length: 128, variable_number: 0, trigger_depth: 0 } } as const;
 const catalog = { version: "2", catalog_revision: "m4-catalog.v1", entries: [{ source, schema_revision: "sales-demo.v1", profile_revision: "m3-profile.v1", kind: "structured", display_name: "Sales demo", description: "Synthetic net sales lines for bounded structured analysis.", capability_help: { profile: "Summarize fields and bounded statistics.", query: "Ask for read-only totals, groups, rankings or period comparisons." }, capabilities: ["profile", "query"], record_count: 24, manifest_bytes: 1025, scope: "complete_immutable_fixture" }, { source: support, schema_revision: "support-demo.v1", profile_revision: null, kind: "messages", display_name: "Support messages", description: "Synthetic support messages for targeted lexical examples.", capability_help: { search: "Find matching messages with exact IDs and source quotes; hits do not establish prevalence." }, capabilities: ["search"], record_count: 16, manifest_bytes: 3091, scope: "complete_immutable_fixture" }] } as const;
 async function wire(payload: unknown, job: string | null = id, run: string | null = id, responseRuntime: TestRuntime = runtime): Promise<string> { return JSON.stringify({ version: "2", job_id: job, run_id: run, receipt_id: job, payload, payload_sha256: await payloadSha256(payload), runtime: responseRuntime }); }
-async function queryResult(job: string, run = job): Promise<unknown> {
-  const actual_sql = "SELECT 1";
+async function queryResult(job: string, run = job, responseRuntime: TestRuntime = runtime): Promise<unknown> {
+  const actual_sql = "SELECT SUM(units) AS units FROM sales";
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(actual_sql));
   const sql_sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const rows = [[{ type: "integer", value: "1", exact: true }]];
-  return { version: "2", receipt_id: job, job_id: job, source, schema_revision: "sales-demo.v1", engine_policy: "m2-sqlite.v1", actual_sql, sql_sha256, columns: ["value"], rows, row_count: 1, result_sha256: await payloadSha256({ columns: ["value"], rows }), coverage: "complete_query_result", truncated: false, analytical_validated: false, limits: queryLimits, runtime: { python_version: runtime.python_version, sqlite_version: runtime.sqlite_version, runtime_mode: "local", build_revision: null, worker_version_id: null } };
+  return { version: "2", receipt_id: job, job_id: job, source, schema_revision: "sales-demo.v1", engine_policy: "m2-sqlite.v1", actual_sql, sql_sha256, columns: ["units"], rows, row_count: 1, result_sha256: await payloadSha256({ columns: ["units"], rows }), coverage: "complete_query_result", truncated: false, analytical_validated: false, limits: queryLimits, runtime: { python_version: responseRuntime.python_version, sqlite_version: responseRuntime.sqlite_version, runtime_mode: responseRuntime.runtime_mode, build_revision: responseRuntime.build_revision, worker_version_id: responseRuntime.worker_version_id } };
 }
 const idleAI = { run: async () => ({ response: "{}" }) } as unknown as Env["AI"];
 function agentBinding(admitted = true): Fetcher { return { fetch: async () => Response.json({ version: "1", admitted }) } as unknown as Fetcher; }
 function env(fetch: Fetcher, AI: Env["AI"] = idleAI, AGENT: Fetcher = agentBinding(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): Env { return { TOOLS: fetch, AI, AGENT, PLANNER_BUDGET_TOKEN: "p".repeat(32), RUNTIME_MODE: "local", AppAgent: {} as Env["AppAgent"], ...runtimeConfig }; }
-function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 }; }
+function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [], planner: null, publication: null, model_calls: 0 }; }
 function harness(fetch: Fetcher, initial = state(), AI: Env["AI"] = idleAI, AGENT: Fetcher = agentBinding(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): { agent: AppAgent; jobs: Promise<unknown>[]; state: () => BridgeState } { const jobs: Promise<unknown>[] = []; const agent = new AppAgent({ waitUntil: (promise: Promise<unknown>) => jobs.push(promise) } as never, env(fetch, AI, AGENT, runtimeConfig)); (agent as unknown as { state: BridgeState }).state = initial; return { agent, jobs, state: () => (agent as unknown as { state: BridgeState }).state }; }
 function model(value: unknown): Env["AI"] { return { run: async () => ({ response: JSON.stringify(value) }) } as unknown as Env["AI"]; }
-const planned = { version: "1", request_id: id, source, status: "plan", mode: "query", sql: "SELECT 1", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
+function publishingModel(): Env["AI"] { let calls = 0; return { run: async (_model: string, input: unknown) => {
+  if (calls++ === 0) return { response: JSON.stringify(planned) };
+  const body = JSON.parse((input as { messages: { content: string }[] }).messages[1].content) as { candidate: unknown; job_id: string; run_id: string; source: unknown; proposal: unknown; validator_input_sha256: string; validator_call_id: string };
+  return { response: JSON.stringify({ version: "1", request_id: id, job_id: body.job_id, run_id: body.run_id, source: body.source, overall: "pass", deterministic_pass: true,
+    candidate_sha256: await payloadSha256(body.candidate), plan_sha256: await payloadSha256(body.proposal), validator_input_sha256: body.validator_input_sha256, validator_call_id: body.validator_call_id,
+    policy_revision: "m4-validator.v1", claims: [{ claim_id: "answer", disposition: "supported", reason: "evidence" }], summary: "supported" }) };
+} } as unknown as Env["AI"]; }
+const planned = { version: "1", request_id: id, source, status: "plan", mode: "query", sql: "SELECT SUM(units) AS units FROM sales", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
 const clarification = { version: "1", request_id: id, source, status: "clarify", mode: "clarify", sql: null, query: null, channel: null, customer: null, start: null, end: null, clarification: "Which period should I compare?" } as const;
 function post(path: string, body: Record<string, unknown>): Request { return new Request(`https://app.test${path}`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } }); }
-function tools(delay = false, responseRuntime: TestRuntime = runtime): { fetcher: Fetcher; pending: { resolve: (response: Response) => void }; calls: string[] } { let resolve = (_response: Response): void => undefined; const calls: string[] = []; const pending = { resolve: (response: Response): void => resolve(response) }; const fetcher = { fetch: async (request: Request) => { const path = new URL(request.url).pathname; calls.push(path); if (path === "/v2/catalog") return new Response(await wire(catalog, null, null, responseRuntime)); if (delay) return new Promise<Response>((done) => { resolve = done; }); const body = JSON.parse(await request.text()) as { job_id: string; run_id: string }; const payload = path.endsWith("search") ? search : path.endsWith("query") ? await queryResult(body.job_id, body.run_id) : profile; return new Response(await wire(payload, body.job_id, body.run_id, responseRuntime)); } } as unknown as Fetcher; return { fetcher, pending, calls }; }
+function tools(delay = false, responseRuntime: TestRuntime = runtime, queryRuntime: TestRuntime = responseRuntime): { fetcher: Fetcher; pending: { resolve: (response: Response) => void }; calls: string[] } { let resolve = (_response: Response): void => undefined; const calls: string[] = []; const pending = { resolve: (response: Response): void => resolve(response) }; const fetcher = { fetch: async (request: Request) => { const path = new URL(request.url).pathname; calls.push(path); if (path === "/v2/catalog") return new Response(await wire(catalog, null, null, responseRuntime)); if (delay) return new Promise<Response>((done) => { resolve = done; }); const body = JSON.parse(await request.text()) as { job_id: string; run_id: string }; const payload = path.endsWith("search") ? search : path.endsWith("query") ? await queryResult(body.job_id, body.run_id, queryRuntime) : profile; return new Response(await wire(payload, body.job_id, body.run_id, path.endsWith("query") ? queryRuntime : responseRuntime)); } } as unknown as Fetcher; return { fetcher, pending, calls }; }
 
 describe("native app lifecycle", () => {
   it("plans an ask, persists its proposal, and replays the owned state", async () => {
     const test = harness(tools().fetcher, state(), model(planned));
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(202);
     await test.jobs[0];
-    expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(1);
+    expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(2);
     expect(Date.parse(test.state().session.active_job!.deadline_at) - Date.parse(test.state().session.active_job!.started_at)).toBe(60_000);
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(200);
     expect((await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id.replaceAll("1", "4") }))).status).toBe(202);
     await test.jobs.at(-1); expect(test.state().planner).toBeNull();
+  });
+  it("executes a numeric plan and persists a validated publication", async () => {
+    const test = harness(tools().fetcher, state(), publishingModel());
+    await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await test.jobs[0];
+    const publication = test.state().publication?.result;
+    expect(publication?.kind).toBe("published");
+    expect(publication?.kind === "published" ? publication.answer.text : "").toBe("1 net_units");
+    expect(test.state().publication?.lineage?.receipt_ids).toHaveLength(1);
+    expect(test.state().publication?.evidence?.context.results).toHaveLength(1);
+    expect(test.state().publication?.evidence?.meanings.catalog).not.toBeNull(); expect(test.state().publication?.evidence?.meanings.profile).not.toBeNull();
+    expect(test.state().publication?.identity.validator_input_sha256).toMatch(/^[a-f0-9]{64}$/); expect(test.state().publication?.identity.validator_report_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(test.state().publication?.evidence?.execution.payload_sha256).toBeTruthy();
+    const replay = await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }));
+    expect((await replay.json() as { publication: { lineage: { receipt_ids: string[] }; evidence: { context: { results: unknown[] } } } }).publication.evidence.context.results).toHaveLength(1);
+    const original = test.state();
+    (test.agent as unknown as { state: BridgeState }).state = { ...original, outcomes: original.outcomes.map((outcome) => outcome.kind === "ask" ? { ...outcome, snapshot: { ...outcome.snapshot, publication: { ...outcome.snapshot.publication!, generation: 1 } } } : outcome) };
+    expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(503);
+    for (const publication of [{ ...original.publication!, identity: { ...original.publication!.identity, run_id: id.replaceAll("1", "2") } }, { ...original.publication!, generation: 1 }, { ...original.publication!, cancel_epoch: 1 }, { ...original.publication!, evidence: { ...original.publication!.evidence!, context: { ...original.publication!.evidence!.context, results: [] } } }]) {
+      (test.agent as unknown as { state: BridgeState }).state = { ...original, publication }; expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(503);
+    }
+  });
+  it("refuses publication when the executed receipt provenance differs", async () => {
+    const build = "a".repeat(40); const worker = "22222222-2222-4222-8222-222222222222";
+    const good = { ...runtime, runtime_mode: "deployed" as const, build_revision: build, worker_version_id: worker };
+    const query = { ...good, build_revision: "b".repeat(40) };
+    const test = harness(tools(false, good, query).fetcher, state(), publishingModel(), agentBinding(), { RUNTIME_MODE: "deployed", TOOLS_BUILD_REVISION: build, TOOLS_WORKER_VERSION_ID: worker });
+    await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await test.jobs[0];
+    expect(test.state().publication?.result).toEqual({ kind: "refusal", code: "deterministic_failed" });
   });
   it("persists clarification and safely classifies quota failures", async () => {
     const clarify = harness(tools().fetcher, state(), model(clarification));
