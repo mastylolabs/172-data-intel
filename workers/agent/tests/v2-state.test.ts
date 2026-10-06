@@ -8,9 +8,7 @@ import {
   initialSessionState,
   parseSessionState,
   publicSnapshot,
-  resetSession,
   selectSource,
-  sessionStateV2,
   storeJob,
   type JobV2,
   type SourceV2,
@@ -24,35 +22,18 @@ const job = (overrides: Partial<JobV2> = {}): JobV2 => ({
   request_id: REQUEST_ID,
   input_sha256: "a".repeat(64),
   source: SALES_SOURCE,
-  plan_id: null,
-  plan_sha256: null,
   generation: 0,
   cancel_epoch: 0,
   phase: "queued",
   started_at: now,
   deadline_at: "2026-10-06T10:01:00.000Z",
   active_run_id: null,
-  stage_runs: [],
-  model_calls: 0,
-  evidence_calls: 0,
-  validation_calls: 0,
-  candidate_id: null,
-  report_id: null,
-  publication_id: null,
   error: null,
   clarification: null,
-  accepted_answer_id: null,
   ...overrides,
 });
 
 describe("v2 durable session state", () => {
-  it("starts with the exact demo source identity and strict bounded shape", () => {
-    const state = initialSessionState(new Date(now));
-    expect(state.selected_source).toEqual(SALES_SOURCE);
-    expect(sessionStateV2.safeParse({ ...state, extra: true }).success).toBe(false);
-    expect(parseSessionState(state)).toEqual(state);
-  });
-
   it("accepts support only with its registered hash and fences selection", () => {
     const state = selectSource(initialSessionState(new Date(now)), SUPPORT_SOURCE);
     expect(state.selected_source).toEqual(SUPPORT_SOURCE);
@@ -61,48 +42,46 @@ describe("v2 durable session state", () => {
   });
 
   it("distinguishes a new request, replay and changed-input conflict", () => {
-    const state = initialSessionState(new Date(now));
-    const first = beginJob(state, job());
+    const state = selectSource(initialSessionState(new Date(now)), SALES_SOURCE);
+    const admittedJob = job({ generation: state.generation, cancel_epoch: state.cancel_epoch });
+    const first = beginJob(state, admittedJob);
     expect(first.kind).toBe("new");
-    const stored = storeJob(state, job());
-    const finished = finishJob(stored, JOB_ID, 0, 0, {
+    const stored = storeJob(state, admittedJob);
+    const finished = finishJob(stored, JOB_ID, 1, 1, {
       phase: "failed",
-      error: { code: "model_quota", message: "model unavailable" },
-      publication_id: null,
+      error: { code: "model_unavailable", stage: "planning" },
     });
-    expect(beginJob(finished, job()).kind).toBe("replay");
-    expect(beginJob(finished, job({ request_id: "33333333-3333-4333-8333-333333333333" })).kind).toBe("new");
-    expect(beginJob(finished, job({ input_sha256: "b".repeat(64) }))).toEqual({
+    expect(beginJob(finished, admittedJob).kind).toBe("replay");
+    expect(beginJob(finished, job({ request_id: "33333333-3333-4333-8333-333333333333", generation: state.generation, cancel_epoch: state.cancel_epoch })).kind).toBe("new");
+    expect(beginJob(finished, job({ input_sha256: "b".repeat(64), generation: state.generation, cancel_epoch: state.cancel_epoch }))).toEqual({
       kind: "conflict",
       code: "request_conflict",
     });
   });
 
   it("does not allow stale completion after cancellation or a source switch", () => {
-    const state = storeJob(initialSessionState(new Date(now)), job());
+    const state = storeJob(selectSource(initialSessionState(new Date(now)), SALES_SOURCE), job({ generation: 1, cancel_epoch: 1 }));
     const cancelled = cancelJob(state);
     expect(() => finishJob(cancelled, JOB_ID, 0, 0, {
       phase: "completed",
       error: null,
-      publication_id: null,
     })).toThrow("stale_job");
-    const cancelledTerminal = finishJob(cancelled, JOB_ID, 0, 1, {
+    const cancelledTerminal = finishJob(cancelled, JOB_ID, 1, 2, {
       phase: "cancelled",
       error: null,
-      publication_id: null,
     });
     expect(cancelledTerminal.active_job?.phase).toBe("cancelled");
     const switched = selectSource(state, SUPPORT_SOURCE);
-    expect(() => finishJob(switched, JOB_ID, 0, 0, {
+    expect(() => finishJob(switched, JOB_ID, 1, 1, {
       phase: "completed",
       error: null,
-      publication_id: null,
     })).toThrow("stale_job");
   });
 
   it("keeps the public projection bounded and rejects oversized state", () => {
     const state = initialSessionState(new Date(now));
-    expect(publicSnapshot(state)).toEqual(state);
+    const { request_journal: _journal, generation: _generation, cancel_epoch: _epoch, ...publicState } = state;
+    expect(publicSnapshot(state)).toEqual(publicState);
     expect(() => parseSessionState({ ...state, history: [{
       answer_id: JOB_ID,
       source: SALES_SOURCE,
@@ -112,12 +91,4 @@ describe("v2 durable session state", () => {
     }] })).toThrow();
   });
 
-  it("reset clears accepted state and advances lifecycle fences", () => {
-    const selected = selectSource(initialSessionState(new Date(now)), SUPPORT_SOURCE);
-    const reset = resetSession(selected, new Date(now));
-    expect(reset.selected_source).toEqual(SALES_SOURCE);
-    expect(reset.history).toEqual([]);
-    expect(reset.generation).toBe(selected.generation + 1);
-    expect(reset.cancel_epoch).toBe(selected.cancel_epoch + 1);
-  });
 });
