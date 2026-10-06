@@ -30,6 +30,10 @@ per-session 12-calls/hour admission, global 24-calls/day `ProofBudget` admission
 bounded 32-entry request journal, and 30-second wait bound apply before model
 dispatch. Provider failures are classified without raw error details; there are
 no retries.
+The app Worker uses the private `/internal/planner-budget` service route with
+the `PLANNER_BUDGET_TOKEN` secret (placeholder:
+`replace-with-32-byte-random-value`) to reuse this same global admission. Set
+the secret separately on both Workers with Wrangler; never commit or log it.
 SQL execution, Validator publication, support retrieval, uploads, frontend routes,
 and async job lifecycle remain deferred. `/proof/query` is reserved and returns
 `unsupported_transport`; the synchronous engine receipt and planner candidate are

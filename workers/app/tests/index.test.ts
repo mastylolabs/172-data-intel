@@ -4,8 +4,7 @@ vi.mock("agents", () => ({ Agent: class {
   constructor(ctx: { waitUntil(promise: Promise<unknown>): void }, env: unknown) { this.ctx = ctx; this.env = env; }
   setState(value: unknown): void { this.state = value; }
 }, getAgentByName: vi.fn() }));
-vi.mock("cloudflare:workers", () => ({ DurableObject: class { ctx: unknown; env: unknown; constructor(ctx: unknown, env: unknown) { this.ctx = ctx; this.env = env; } } }));
-import { AppAgent, PlannerBudget, publicFetch, trustedRuntime, type BridgeState, type Env } from "../src/index";
+import { AppAgent, publicFetch, trustedRuntime, type BridgeState, type Env } from "../src/index";
 import { payloadSha256 } from "../src/policy";
 import { initialSessionState } from "../../agent/src/v2-state";
 
@@ -27,10 +26,10 @@ async function queryResult(job: string, run = job): Promise<unknown> {
   return { version: "2", receipt_id: job, job_id: job, source, schema_revision: "sales-demo.v1", engine_policy: "m2-sqlite.v1", actual_sql, sql_sha256, columns: ["value"], rows, row_count: 1, result_sha256: await payloadSha256({ columns: ["value"], rows }), coverage: "complete_query_result", truncated: false, analytical_validated: false, limits: queryLimits, runtime: { python_version: runtime.python_version, sqlite_version: runtime.sqlite_version, runtime_mode: "local", build_revision: null, worker_version_id: null } };
 }
 const idleAI = { run: async () => ({ response: "{}" }) } as unknown as Env["AI"];
-function budgetNamespace(admitted = true): Env["PlannerBudget"] { const stub = { fetch: async () => Response.json({ version: "1", admitted }) }; return { idFromName: () => ({}), get: () => stub } as unknown as Env["PlannerBudget"]; }
-function env(fetch: Fetcher, AI: Env["AI"] = idleAI, PlannerBudget: Env["PlannerBudget"] = budgetNamespace(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): Env { return { TOOLS: fetch, AI, PlannerBudget, RUNTIME_MODE: "local", AppAgent: {} as Env["AppAgent"], ...runtimeConfig }; }
+function agentBinding(admitted = true): Fetcher { return { fetch: async () => Response.json({ version: "1", admitted }) } as unknown as Fetcher; }
+function env(fetch: Fetcher, AI: Env["AI"] = idleAI, AGENT: Fetcher = agentBinding(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): Env { return { TOOLS: fetch, AI, AGENT, PLANNER_BUDGET_TOKEN: "p".repeat(32), RUNTIME_MODE: "local", AppAgent: {} as Env["AppAgent"], ...runtimeConfig }; }
 function state(selected = source): BridgeState { const session = initialSessionState(); session.selected_source = selected; session.selected_catalog_revision = "m4-catalog.v1"; return { version: "1", session, result: null, result_kind: null, revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 }; }
-function harness(fetch: Fetcher, initial = state(), AI: Env["AI"] = idleAI, PlannerBudget: Env["PlannerBudget"] = budgetNamespace(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): { agent: AppAgent; jobs: Promise<unknown>[]; state: () => BridgeState } { const jobs: Promise<unknown>[] = []; const agent = new AppAgent({ waitUntil: (promise: Promise<unknown>) => jobs.push(promise) } as never, env(fetch, AI, PlannerBudget, runtimeConfig)); (agent as unknown as { state: BridgeState }).state = initial; return { agent, jobs, state: () => (agent as unknown as { state: BridgeState }).state }; }
+function harness(fetch: Fetcher, initial = state(), AI: Env["AI"] = idleAI, AGENT: Fetcher = agentBinding(), runtimeConfig: Partial<Pick<Env, "RUNTIME_MODE" | "TOOLS_BUILD_REVISION" | "TOOLS_WORKER_VERSION_ID">> = {}): { agent: AppAgent; jobs: Promise<unknown>[]; state: () => BridgeState } { const jobs: Promise<unknown>[] = []; const agent = new AppAgent({ waitUntil: (promise: Promise<unknown>) => jobs.push(promise) } as never, env(fetch, AI, AGENT, runtimeConfig)); (agent as unknown as { state: BridgeState }).state = initial; return { agent, jobs, state: () => (agent as unknown as { state: BridgeState }).state }; }
 function model(value: unknown): Env["AI"] { return { run: async () => ({ response: JSON.stringify(value) }) } as unknown as Env["AI"]; }
 const planned = { version: "1", request_id: id, source, status: "plan", mode: "query", sql: "SELECT 1", query: null, channel: null, customer: null, start: null, end: null, clarification: null } as const;
 const clarification = { version: "1", request_id: id, source, status: "clarify", mode: "clarify", sql: null, query: null, channel: null, customer: null, start: null, end: null, clarification: "Which period should I compare?" } as const;
@@ -43,7 +42,7 @@ describe("native app lifecycle", () => {
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(202);
     await test.jobs[0];
     expect(test.state().planner?.result.kind).toBe("proposal"); expect(test.state().model_calls).toBe(1);
-    expect(Date.parse(test.state().session.active_job!.deadline_at) - Date.parse(test.state().session.active_job!.started_at)).toBe(45_000);
+    expect(Date.parse(test.state().session.active_job!.deadline_at) - Date.parse(test.state().session.active_job!.started_at)).toBe(60_000);
     expect((await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" }))).status).toBe(200);
   });
   it("persists clarification and safely classifies quota failures", async () => {
@@ -54,14 +53,14 @@ describe("native app lifecycle", () => {
     const quota = harness(tools().fetcher, state(), { run: async () => { throw Object.assign(new Error("quota"), { code: 4006 }); } } as unknown as Env["AI"]);
     await quota.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await quota.jobs[0];
     expect(quota.state().planner?.result).toMatchObject({ kind: "failure", code: "model_quota" });
-    const deniedTools = tools(); const denied = harness(deniedTools.fetcher, state(), model(planned), budgetNamespace(false));
+    const deniedTools = tools(); const denied = harness(deniedTools.fetcher, state(), model(planned), agentBinding(false));
     await denied.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await denied.jobs[0];
     expect(deniedTools.calls).toEqual([]); expect(denied.state().planner?.result).toMatchObject({ kind: "failure", code: "budget_exhausted" });
   });
   it("fails closed on deployed tool provenance before profiling or model use", async () => {
     const build = "a".repeat(40); const worker = "22222222-2222-4222-8222-222222222222";
     const responses = tools(false, { ...runtime, runtime_mode: "deployed", build_revision: build, worker_version_id: worker });
-    const test = harness(responses.fetcher, state(), model(planned), budgetNamespace(), { RUNTIME_MODE: "deployed", TOOLS_BUILD_REVISION: "b".repeat(40), TOOLS_WORKER_VERSION_ID: worker });
+    const test = harness(responses.fetcher, state(), model(planned), agentBinding(), { RUNTIME_MODE: "deployed", TOOLS_BUILD_REVISION: "b".repeat(40), TOOLS_WORKER_VERSION_ID: worker });
     await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await test.jobs[0];
     expect(responses.calls).toEqual(["/v2/catalog"]); expect(test.state().planner?.result).toMatchObject({ kind: "failure", code: "model_unavailable" });
   });
@@ -82,6 +81,15 @@ describe("native app lifecycle", () => {
     const queued = await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id.replaceAll("1", "2"), question: "total sales" }));
     expect((await queued.json() as { last_result: unknown; planner: unknown }).last_result).toBeNull();
     await test.jobs.at(-1);
+  });
+  it("fences a cancellation that arrives during global admission", async () => {
+    let resolveAdmission: (response: Response) => void = () => undefined;
+    const pendingAgent = { fetch: async () => new Promise<Response>((resolve) => { resolveAdmission = resolve; }) } as unknown as Fetcher;
+    const responses = tools(); const test = harness(responses.fetcher, state(), model(planned), pendingAgent);
+    await test.agent.onRequest(post("/api/ask", { version: "2", request_id: id, question: "total sales" })); await Promise.resolve();
+    await test.agent.onRequest(post("/api/cancel", { version: "2" }));
+    resolveAdmission(Response.json({ version: "1", admitted: true })); await test.jobs[0];
+    expect(responses.calls).toEqual([]); expect(test.state().planner).toBeNull();
   });
   it("rejects an oversized ask before dispatch", async () => {
     const test = harness(tools().fetcher, state(), model(planned));
@@ -158,13 +166,5 @@ describe("native app lifecycle", () => {
     const deployed = { ...env({} as Fetcher), RUNTIME_MODE: "deployed" as const, TOOLS_BUILD_REVISION: "a".repeat(40), TOOLS_WORKER_VERSION_ID: "22222222-2222-4222-8222-222222222222" };
     expect(trustedRuntime(deployed, receipt)).toBe(true);
     expect(trustedRuntime({ ...deployed, TOOLS_WORKER_VERSION_ID: "33333333-3333-4333-8333-333333333333" }, receipt)).toBe(false);
-  });
-});
-describe("global planner budget", () => {
-  it("admits 24 calls and refuses the 25th", async () => {
-    let stored: unknown; const ctx = { storage: { get: vi.fn(async () => stored), put: vi.fn(async (_key: string, value: unknown) => { stored = value; }) }, blockConcurrencyWhile: async (run: () => Promise<void>) => run() } as unknown as DurableObjectState;
-    const budget = new PlannerBudget(ctx, {} as Env);
-    for (let index = 0; index < 24; index += 1) expect((await (await budget.fetch(new Request("https://budget/admit", { method: "POST", body: '{"version":"1"}' }))).json() as { admitted: boolean }).admitted).toBe(true);
-    expect((await (await budget.fetch(new Request("https://budget/admit", { method: "POST", body: '{"version":"1"}' }))).json() as { admitted: boolean }).admitted).toBe(false);
   });
 });

@@ -20,10 +20,13 @@ The public routes are `GET /api/state` and same-origin `POST /api/source`,
 and returns a durable 202 job snapshot. The Agent loads the approved catalog,
 loads the sales profile when needed, and calls the bounded free-only planner;
 the public state exposes only the validated proposal or clarification, safe
-model failure, and the remaining per-session model-call budget. A serialized
-global `PlannerBudget` Durable Object admits at most 24 free planner starts per
-UTC day. Ask jobs allow the bounded tool work plus the 30-second planner
-timeout; existing profile/query/search jobs retain their shorter deadline. A
+model failure, and the remaining per-session model-call budget. The private
+Agent service's existing `ProofBudget` admits at most 24 free planner starts
+per UTC day through a token-protected service route. Configure the same secret
+placeholder `replace-with-32-byte-random-value` in both Workers with
+`wrangler secret put PLANNER_BUDGET_TOKEN`; never commit or log its value. Ask
+jobs allow the bounded tool work plus the 30-second planner timeout within a
+60-second deadline; existing profile/query/search jobs retain their shorter deadline. A
 planner job does not publish a candidate or answer yet; those are the next
 orchestration slice.
 Jobs return a 202 snapshot and are polled through `/api/state`. Sessions are

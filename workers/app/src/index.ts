@@ -1,5 +1,4 @@
 import { Agent, getAgentByName, type Connection } from "agents";
-import { DurableObject as DurableObjectBase } from "cloudflare:workers";
 import { z } from "zod";
 import { approvedSource, catalogV2, dataProfileV2, validatedDomainEnvelope, type DomainKind, type Envelope, type Source } from "./contracts";
 import {
@@ -15,7 +14,8 @@ import {
 
 export interface Env extends TransportEnv, ModelEnv {
   AppAgent: DurableObjectNamespace<AppAgent>;
-  PlannerBudget: DurableObjectNamespace<PlannerBudget>;
+  AGENT: Fetcher;
+  PLANNER_BUDGET_TOKEN?: string;
   TOOLS_BUILD_REVISION?: string;
   TOOLS_WORKER_VERSION_ID?: string;
 }
@@ -39,9 +39,7 @@ const routes: Record<string, string> = {
   "/api/search": "POST", "/api/cancel": "POST", "/api/reset": "POST",
 };
 const MODEL_CALL_BUDGET = 3;
-const GLOBAL_MODEL_CALL_BUDGET = 24;
 const emptyBody = z.strictObject({ version: z.literal("2") });
-const budgetRequest = z.strictObject({ version: z.literal("1") });
 const plannerStateSchema = z.strictObject({
   request_id: z.uuid(), job_id: z.uuid(), source: approvedSource,
   generation: z.number().int().nonnegative(), cancel_epoch: z.number().int().nonnegative(),
@@ -55,27 +53,6 @@ const json = (value: unknown, status = 200): Response => Response.json(value, {
   status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" },
 });
 const errorResponse = (error: BridgeError): Response => json({ version: "2", code: error.code }, error.status);
-type PlannerBudgetState = { version: "1"; utc_day: string; model_calls: number };
-export class PlannerBudget extends DurableObjectBase<Env> {
-  constructor(ctx: DurableObjectState, env: Env) { super(ctx, env); }
-  async fetch(request: Request): Promise<Response> {
-    if (request.method !== "POST") return json({ version: "1", admitted: false }, 404);
-    try {
-      budgetRequest.parse(await readJson(request, 1024));
-      let admitted = false;
-      await this.ctx.blockConcurrencyWhile(async () => {
-        const day = new Date().toISOString().slice(0, 10);
-        const stored = await this.ctx.storage.get<PlannerBudgetState>("budget");
-        const current = stored?.utc_day === day ? stored : { version: "1" as const, utc_day: day, model_calls: 0 };
-        if (current.model_calls < GLOBAL_MODEL_CALL_BUDGET) {
-          await this.ctx.storage.put("budget", { ...current, model_calls: current.model_calls + 1 });
-          admitted = true;
-        }
-      });
-      return json({ version: "1", admitted });
-    } catch { return json({ version: "1", admitted: false }, 400); }
-  }
-}
 function initialBridgeState(): BridgeState {
   return { version: "1", session: initialSessionState(), result: null, result_kind: null,
     revoked: false, expired: false, outcomes: [], planner: null, model_calls: 0 };
@@ -209,9 +186,10 @@ export function trustedRuntime(env: Env, receipt: Envelope<unknown>): boolean {
     receipt.runtime.worker_version_id === env.TOOLS_WORKER_VERSION_ID);
 }
 async function admitPlannerBudget(env: Env): Promise<boolean> {
-  const id = env.PlannerBudget.idFromName("m4-global");
-  const response = await env.PlannerBudget.get(id).fetch(new Request("https://planner-budget/admit", {
-    method: "POST", body: JSON.stringify({ version: "1" }), headers: { "content-type": "application/json" },
+  const token = env.PLANNER_BUDGET_TOKEN;
+  if (token === undefined || new TextEncoder().encode(token).byteLength < 32) throw new Error("budget_unavailable");
+  const response = await env.AGENT.fetch(new Request("https://agent/internal/planner-budget", {
+    method: "POST", body: JSON.stringify({ version: "1" }), headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
   }));
   if (!response.ok) throw new Error("budget_unavailable");
   const value = JSON.parse(await readBoundedText(response.body, 1024, 502)) as { admitted?: unknown };
@@ -280,6 +258,8 @@ export class AppAgent extends Agent<Env, BridgeState> {
         this.setState(rememberPlanner({ ...current, session: finished, planner: budgetPlannerState(job) }, job));
         return;
       }
+      current = await validState(this);
+      if (!ownsPlannerJob(current, job)) return;
       const catalogReceipt = await executeTool(this.env, "catalog", null, null);
       current = await validState(this);
       if (!ownsPlannerJob(current, job)) return;
@@ -339,7 +319,7 @@ export class AppAgent extends Agent<Env, BridgeState> {
     const source = state.session.selected_source;
     if (source === null) throw new BridgeError("source_required", 422);
     const hash = await requestHash(body);
-    const job = newJob(source, { kind: "ask", body }, hash, 45_000);
+    const job = newJob(source, { kind: "ask", body }, hash, 60_000);
     job.generation = state.session.generation; job.cancel_epoch = state.session.cancel_epoch;
     const outcome = beginJob(state.session, job);
     if (outcome.kind === "replay") {

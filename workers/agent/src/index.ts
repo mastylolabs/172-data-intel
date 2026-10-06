@@ -35,6 +35,7 @@ export interface Env {
   TOOLS: Fetcher;
   AI: Ai;
   PROOF_TOKEN: string;
+  PLANNER_BUDGET_TOKEN?: string;
   RUNTIME_MODE: "local" | "deployed";
   BUILD_REVISION?: string;
   CF_VERSION_METADATA?: { id: string };
@@ -656,6 +657,15 @@ const proofRoutes = new Set([
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/internal/planner-budget") {
+      if (request.method !== "POST" || new TextEncoder().encode(env.PLANNER_BUDGET_TOKEN ?? "").byteLength < 32 ||
+        request.headers.get("authorization") !== `Bearer ${env.PLANNER_BUDGET_TOKEN}`) return json({ version: "1", admitted: false }, 403);
+      try {
+        emptyInput.parse(await boundedJson(request, 1024));
+        const result = await admitGlobal(env);
+        return json({ version: "1", admitted: result === "admitted" }, result === "unavailable" ? 503 : 200);
+      } catch { return json({ version: "1", admitted: false }, 400); }
+    }
     const isV2 = url.pathname.startsWith("/v2/");
     if (!url.pathname.startsWith("/proof/") && !url.pathname.startsWith("/v2/")) {
       return isV2 ? failV2("not_found", 404) : fail("not_found", 404);
