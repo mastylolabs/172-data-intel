@@ -65,11 +65,13 @@ describe("bounded publication", () => {
       received = JSON.parse(input.messages[1].content);
       const candidate = JSON.parse(input.messages[1].content).candidate as unknown;
       const body = JSON.parse(input.messages[1].content) as { execution_receipt: Envelope<unknown>; proposal: unknown; validator_input_sha256: string };
-      return { response: JSON.stringify({ version: "1", request_id: id, job_id: body.execution_receipt.job_id, run_id: body.execution_receipt.run_id, source: (body.execution_receipt.payload as { source: unknown }).source, overall: "pass", deterministic_pass: true, candidate_sha256: await payloadSha256(candidate), plan_sha256: await payloadSha256(body.proposal), validator_input_sha256: body.validator_input_sha256, validator_call_id: callId, policy_revision: "m4-validator.v1", claims: [{ claim_id: "no_hit", disposition: "supported", reason: "scoped" }], summary: "supported" }) };
+      return { response: JSON.stringify({ version: "1", request_id: id, job_id: body.execution_receipt.job_id, run_id: body.execution_receipt.run_id, source: (body.execution_receipt.payload as { source: unknown }).source, overall: "pass", deterministic_pass: true, candidate_sha256: "0".repeat(64), plan_sha256: "1".repeat(64), validator_input_sha256: "2".repeat(64), validator_call_id: callId, policy_revision: "m4-validator.v1", claims: [{ claim_id: "no_hit", disposition: "supported", reason: "scoped" }], summary: "supported" }) };
     } };
     const evidence = buildEvidence(built.context, receipt)!;
-    expect((await runValidator({ AI: AI as never }, { question: "find export", proposal, meanings: { catalog: null, profile: null }, context: built.context, execution: evidence.execution,
-      candidate: built.candidate, deterministic: { ok: true, issues: [] }, job_id: id, run_id: id, source: support }))?.overall).toBe("pass");
+    const verdict = await runValidator({ AI: AI as never }, { question: "find export", proposal, meanings: { catalog: null, profile: null }, context: built.context, execution: evidence.execution,
+      candidate: built.candidate, deterministic: { ok: true, issues: [] }, job_id: id, run_id: id, source: support });
+    expect(verdict?.overall).toBe("pass");
+    expect(verdict?.candidate_sha256).toBe(await payloadSha256(built.candidate));
     expect(received).toMatchObject({ version: "1", question: "find export", proposal, meanings: { catalog: null, profile: null }, evidence_context: built.context, execution_receipt: evidence.execution, candidate: built.candidate, candidate_sha256: await payloadSha256(built.candidate), validator_input_sha256: expect.any(String), deterministic_check: { ok: true, issues: [] } });
     expect(maxTokens).toBe(512);
   });

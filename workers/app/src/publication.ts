@@ -13,6 +13,11 @@ const VALIDATOR_OUTPUT_BYTES = 8_192;
 const VALIDATOR_MAX_TOKENS = 512;
 const timestamp = (): string => new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(".000Z", "Z");
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const validatorDecision = z.object({
+  version: z.literal("1"), overall: z.enum(["pass", "fail", "needs_clarification"]), deterministic_pass: z.boolean(),
+  claims: z.array(z.strictObject({ claim_id: z.string(), disposition: z.enum(["supported", "unsupported", "unclear"]), reason: z.string().max(512) })).min(1).max(12),
+  summary: z.string().max(512),
+});
 const meanings = z.strictObject({ catalog: catalogV2.nullable(), profile: dataProfileV2.nullable() });
 export const publicationIdentity = z.strictObject({ publication_id: z.uuid(), run_id: z.uuid(), candidate_id: z.uuid().nullable(), candidate_sha256: digest.nullable(), plan_sha256: digest,
   validator_input_sha256: digest.nullable(), validator_report_sha256: digest.nullable(), validator_call_id: z.uuid().nullable(), validator_call: z.enum(["performed", "failed"]).nullable(), model_id: z.string().max(128).nullable(), prompt_revision: z.string().max(64).nullable() });
@@ -113,21 +118,27 @@ export async function runValidator(env: ValidatorEnv, input: ValidatorInput): Pr
   const candidate_sha256 = await payloadSha256(input.candidate);
   const plan_sha256 = await payloadSha256(input.proposal);
   const payload = { version: "1", question: input.question, job_id: input.job_id, run_id: input.run_id, source: input.source, proposal: input.proposal, meanings: input.meanings, evidence_context: input.context, execution_receipt: input.execution,
-    candidate_id: input.candidate_id ?? null, validator_call_id: input.validator_call_id ?? null, candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
+    required_claim_ids: input.candidate.claims.map((claim) => claim.claim_id), candidate_id: input.candidate_id ?? null, validator_call_id: input.validator_call_id ?? null, candidate: input.candidate, candidate_sha256, deterministic_check: input.deterministic };
   const validator_input_sha256 = await payloadSha256(payload);
   const body = JSON.stringify({ ...payload, validator_input_sha256 });
+  const requiredClaimIds = input.candidate.claims.map((claim) => claim.claim_id);
   const request = { messages: [{ role: "system" as const, content: VALIDATOR }, { role: "user" as const, content: body }],
     response_format: { type: "json_schema" as const, json_schema: { type: "object", additionalProperties: false,
-      properties: { version: { const: "1" }, request_id: { type: "string" }, job_id: { type: "string" }, run_id: { type: "string" }, source: { type: "object", additionalProperties: false, properties: { version: { const: "1" }, source_id: { type: "string" }, snapshot_sha256: { type: "string" }, meaning_revision: { type: "string" } }, required: ["version", "source_id", "snapshot_sha256", "meaning_revision"] }, candidate_id: { type: "string" }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, candidate_sha256: { type: "string" }, plan_sha256: { type: "string" }, validator_input_sha256: { type: "string" }, validator_call_id: { type: "string" }, validator_call: { enum: ["performed", "failed"] }, model_id: { type: "string" }, prompt_revision: { type: "string" }, report_sha256: { type: "string" }, policy_revision: { const: "m4-validator.v1" }, claims: { type: "array", maxItems: 12 }, summary: { type: "string", maxLength: 512 } }, required: ["version", "request_id", "job_id", "run_id", "source", "overall", "deterministic_pass", "candidate_sha256", "plan_sha256", "validator_input_sha256", "validator_call_id", "policy_revision", "claims", "summary"] } },
+      properties: { version: { const: "1" }, overall: { enum: ["pass", "fail", "needs_clarification"] }, deterministic_pass: { type: "boolean" }, claims: { type: "array", minItems: requiredClaimIds.length, maxItems: requiredClaimIds.length, items: { type: "object", additionalProperties: false, properties: { claim_id: { enum: requiredClaimIds }, disposition: { enum: ["supported", "unsupported", "unclear"] }, reason: { type: "string", maxLength: 512 } }, required: ["claim_id", "disposition", "reason"] } }, summary: { type: "string", maxLength: 512 } }, required: ["version", "overall", "deterministic_pass", "claims", "summary"] } },
     max_tokens: VALIDATOR_MAX_TOKENS, temperature: 0 };
   if (new TextEncoder().encode(JSON.stringify(request)).byteLength > VALIDATOR_INPUT_BYTES) return null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), 30_000); });
     const raw = await Promise.race([env.AI.run(PLANNER_MODEL, request), timeout]);
-    const value = validatorVerdict.safeParse(validatorJson(raw));
-    if (!value.success || value.data.request_id !== input.candidate.request_id || value.data.candidate_sha256 !== candidate_sha256 || value.data.plan_sha256 !== plan_sha256 || value.data.validator_input_sha256 !== validator_input_sha256 || value.data.job_id !== input.job_id || value.data.run_id !== input.run_id || !sourceEqual(value.data.source!, input.source) || (input.validator_call_id !== undefined && value.data.validator_call_id !== input.validator_call_id)) return null;
-    const report = { ...value.data, candidate_id: input.candidate_id ?? input.candidate.request_id, validator_call_id: input.validator_call_id ?? value.data.validator_call_id, validator_call: "performed" as const, model_id: PLANNER_MODEL, prompt_revision: "m4-validator.v1" };
+    const value = validatorDecision.safeParse(validatorJson(raw));
+    if (!value.success) return null;
+    let report: z.infer<typeof validatorVerdict>;
+    try {
+      report = validatorVerdict.parse({ ...value.data, request_id: input.candidate.request_id, job_id: input.job_id, run_id: input.run_id, source: input.source,
+        candidate_id: input.candidate_id ?? input.candidate.request_id, candidate_sha256, plan_sha256, validator_input_sha256,
+        validator_call_id: input.validator_call_id ?? crypto.randomUUID(), policy_revision: "m4-validator.v1", validator_call: "performed", model_id: PLANNER_MODEL, prompt_revision: "m4-validator.v1" });
+    } catch { return null; }
     return { ...report, report_sha256: await payloadSha256(report) };
   } catch { return null; } finally { if (timer !== undefined) clearTimeout(timer); }
 }
