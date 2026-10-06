@@ -79,11 +79,11 @@ describe("native app lifecycle", () => {
   it("reconciles a queued job after its deadline", async () => {
     const pending = tools(true); const test = harness(pending.fetcher);
     await test.agent.onRequest(post("/api/profile", { version: "2", request_id: id })); await Promise.resolve();
-    const current = test.state(); (test.agent as unknown as { state: BridgeState }).state = { ...current, session: { ...current.session, active_job: { ...current.session.active_job!, deadline_at: "2020-01-01T00:00:00.000Z" } } };
+    const current = test.state(); const epoch = current.session.cancel_epoch + 1; (test.agent as unknown as { state: BridgeState }).state = { ...current, session: { ...current.session, cancel_epoch: epoch, active_job: { ...current.session.active_job!, deadline_at: "2020-01-01T00:00:00.000Z", phase: "cancel_requested", cancel_epoch: epoch } } };
     expect((await test.agent.onRequest(new Request("https://app.test/api/state"))).status).toBe(200);
-    expect(test.state().session.active_job?.phase).toBe("interrupted");
+    expect(test.state().session.active_job?.phase).toBe("cancelled");
     pending.pending.resolve(new Response(await wire(profile, id, id))); await test.jobs[0];
-    expect(test.state().session.active_job?.phase).toBe("interrupted");
+    expect(test.state().session.active_job?.phase).toBe("cancelled");
   });
   it("isolates opaque cookies and rejects unsafe transports", async () => {
     const names: string[] = []; const resolver = async (_env: Env, name: string) => { names.push(name); return { fetch: async () => Response.json({ ok: true }) }; };
@@ -92,6 +92,7 @@ describe("native app lifecycle", () => {
     expect(names[0]).not.toBe(names[1]);
     expect((await publicFetch(new Request("https://app.test/api/state", { headers: { upgrade: "websocket" } }), env({} as Fetcher), resolver)).status).toBe(400);
     expect((await publicFetch(new Request("https://app.test/api/reset", { method: "POST", headers: { origin: "https://other.test" } }), env({} as Fetcher), resolver)).status).toBe(403);
+    const rotated = await publicFetch(new Request("https://app.test/api/reset", { method: "POST", headers: { cookie: `di_session=${"b".repeat(64)}`, origin: "https://app.test" } }), env({} as Fetcher), resolver); expect(rotated.headers.get("set-cookie")).not.toContain("b".repeat(64)); expect((await publicFetch(new Request("https://app.test/api/unknown"), env({} as Fetcher), resolver)).status).toBe(404);
   });
   it("fails safely for corrupt durable state", async () => {
     const test = harness(tools().fetcher, { ...state(), session: null as unknown as BridgeState["session"] });
