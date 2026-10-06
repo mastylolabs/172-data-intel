@@ -29,6 +29,10 @@ from data_intel.validation import (
 )
 
 ID = UUID("20fdc73a-5ac2-4ee4-a6f8-a3f175455f7b")
+GROUP_SQL = (
+    "SELECT customer, sum(revenue_cents) AS revenue_cents FROM main.sales "
+    "GROUP BY customer ORDER BY revenue_cents DESC, customer ASC"
+)
 
 
 def _hash(value: object) -> str:
@@ -144,11 +148,7 @@ def test_difference_checks_exact_inputs_formula_and_unit() -> None:
 
 
 def test_ranking_recomputes_complete_group_order_and_ties() -> None:
-    sql = (
-        "SELECT customer, sum(revenue_cents) AS revenue_cents FROM main.sales "
-        "GROUP BY customer ORDER BY revenue_cents DESC, customer ASC"
-    )
-    evidence = _query(sql, "USD_cents", DEMO_SOURCE, "Elm")
+    evidence = _query(GROUP_SQL, "USD_cents", DEMO_SOURCE, "Elm")
     assert isinstance(evidence.payload, QueryResultV2)
     assert [row[0].value for row in evidence.payload.rows][-2:] == ["Elm", "Fjord"]
     base = _claim(evidence, "5", "revenue_cents", 4)
@@ -167,9 +167,43 @@ def test_ranking_recomputes_complete_group_order_and_ties() -> None:
         .code
         == "rank_mismatch"
     )
-    wrong_sql = sql.replace(", customer ASC", "")
+    wrong_sql = GROUP_SQL.replace(", customer ASC", "")
     with pytest.raises(ValidationError, match="unsupported_scope"):
         _query(wrong_sql, "USD_cents", DEMO_SOURCE, "Elm")
+
+
+def test_group_scope_binds_each_referenced_row_and_refuses_grouped_sum() -> None:
+    evidence = _query(GROUP_SQL, "USD_cents", DEMO_SOURCE, "Elm")
+    assert (
+        validate_numeric(_claim(evidence, "40000", "revenue_cents", 4), evidence).overall == "pass"
+    )
+    acme = _claim(evidence, "100000", "revenue_cents", 0)
+    assert validate_numeric(acme, evidence).checks[0].code == "group_mismatch"
+    ref = acme.result_ref.model_copy(update={"row_index": None})
+    difference = acme.model_copy(
+        update={
+            "claim_type": "comparison",
+            "result_ref": ref,
+            "value": acme.value.model_copy(update={"value": "0"}),
+            "calculation": CalculationV2(
+                kind="difference",
+                inputs=("revenue_cents[4]", "revenue_cents[5]"),
+                formula="revenue_cents[4]-revenue_cents[5]",
+            ),
+        }
+    )
+    assert validate_numeric(difference, evidence).checks[0].code == "group_mismatch"
+    total = acme.model_copy(
+        update={
+            "claim_type": "sum",
+            "result_ref": ref.model_copy(update={"cell_path": "sum"}),
+            "value": acme.value.model_copy(update={"value": "395000"}),
+            "calculation": CalculationV2(
+                kind="sum", inputs=("revenue_cents",), formula="sum(revenue_cents)"
+            ),
+        }
+    )
+    assert validate_numeric(total, evidence).overall == "unsupported"
 
 
 def test_unverified_receipt_scope_and_id_refuse() -> None:

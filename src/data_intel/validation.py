@@ -203,6 +203,16 @@ def _cell(payload: QueryResultV2, column: str, index: int) -> int:
     return int(cell.value)
 
 
+def _check_group_row(claim: NumericalClaimV2, payload: QueryResultV2, index: int) -> None:
+    if _grouped_measure(payload) is None:
+        return
+    if index >= len(payload.rows) or claim.scope.group is None:
+        raise ValueError("group_mismatch")
+    group = payload.rows[index][0]
+    if group.type != "text" or group.value != claim.scope.group:
+        raise ValueError("group_mismatch")
+
+
 def _profile_value(claim: NumericalClaimV2, payload: DataProfileV2) -> int:
     ref, calc = claim.result_ref, claim.calculation
     measure = next((item for item in payload.measures if item.field == ref.column), None)
@@ -223,6 +233,7 @@ def _direct_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
         or calc.formula != calc.inputs[0]
     ):
         raise ValueError("unsupported_formula")
+    _check_group_row(claim, payload, index)
     return _cell(payload, ref.column, index)
 
 
@@ -238,6 +249,8 @@ def _difference_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
     ):
         raise ValueError("unsupported_formula")
     left, right = (tokens.index(token) for token in calc.inputs)
+    _check_group_row(claim, payload, left)
+    _check_group_row(claim, payload, right)
     return _cell(payload, ref.column, left) - _cell(payload, ref.column, right)
 
 
@@ -270,22 +283,27 @@ def _rank_pairs(payload: QueryResultV2, column: str) -> list[tuple[int, str]]:
     return pairs
 
 
-def _query_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
+def _sum_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
     ref, calc = claim.result_ref, claim.calculation
-    if calc.kind == "direct_cell":
+    if (
+        _grouped_measure(payload) is not None
+        or ref.row_index is not None
+        or ref.cell_path != "sum"
+        or calc.inputs != (ref.column,)
+        or calc.formula != f"sum({ref.column})"
+    ):
+        raise ValueError("unsupported_formula")
+    return sum(_cell(payload, ref.column, index) for index in range(len(payload.rows)))
+
+
+def _query_value(claim: NumericalClaimV2, payload: QueryResultV2) -> int:
+    if claim.calculation.kind == "direct_cell":
         return _direct_value(claim, payload)
-    if calc.kind == "sum":
-        if (
-            ref.row_index is not None
-            or ref.cell_path != "sum"
-            or calc.inputs != (ref.column,)
-            or calc.formula != f"sum({ref.column})"
-        ):
-            raise ValueError("unsupported_formula")
-        return sum(_cell(payload, ref.column, i) for i in range(len(payload.rows)))
-    if calc.kind == "difference":
+    if claim.calculation.kind == "sum":
+        return _sum_value(claim, payload)
+    if claim.calculation.kind == "difference":
         return _difference_value(claim, payload)
-    if calc.kind == "rank":
+    if claim.calculation.kind == "rank":
         return _rank_value(claim, payload)
     raise ValueError("unsupported_formula")
 
