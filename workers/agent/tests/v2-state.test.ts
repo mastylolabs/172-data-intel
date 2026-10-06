@@ -24,15 +24,24 @@ const job = (overrides: Partial<JobV2> = {}): JobV2 => ({
   request_id: REQUEST_ID,
   input_sha256: "a".repeat(64),
   source: SALES_SOURCE,
+  plan_id: null,
+  plan_sha256: null,
   generation: 0,
   cancel_epoch: 0,
   phase: "queued",
   started_at: now,
   deadline_at: "2026-10-06T10:01:00.000Z",
   active_run_id: null,
+  stage_runs: [],
+  model_calls: 0,
+  evidence_calls: 0,
+  validation_calls: 0,
   candidate_id: null,
+  report_id: null,
   publication_id: null,
   error: null,
+  clarification: null,
+  accepted_answer_id: null,
   ...overrides,
 });
 
@@ -77,6 +86,12 @@ describe("v2 durable session state", () => {
       error: null,
       publication_id: null,
     })).toThrow("stale_job");
+    const cancelledTerminal = finishJob(cancelled, JOB_ID, 0, 1, {
+      phase: "cancelled",
+      error: null,
+      publication_id: null,
+    });
+    expect(cancelledTerminal.active_job?.phase).toBe("cancelled");
     const switched = selectSource(state, SUPPORT_SOURCE);
     expect(() => finishJob(switched, JOB_ID, 0, 0, {
       phase: "completed",

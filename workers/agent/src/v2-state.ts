@@ -43,20 +43,42 @@ export const jobPhase = z.enum([
   "budget_exhausted",
 ]);
 const error = z.strictObject({ code: z.string().max(64), message: z.string().max(256) });
+const stage = z.enum(["orchestrator", "profiler", "semantic", "analyst", "validator"]);
+const stageRun = z.strictObject({
+  run_id: uuid,
+  stage,
+  attempt: z.literal(1),
+  input_sha256: digest,
+  output_sha256: digest.nullable(),
+  started_at: iso,
+  finished_at: iso.nullable(),
+  runtime_mode: z.enum(["local", "deployed"]),
+  terminal_status: z.string().max(64).nullable(),
+});
+const clarification = z.strictObject({ question: z.string().max(1024), created_at: iso });
 export const jobV2 = z.strictObject({
   job_id: uuid,
   request_id: uuid,
   input_sha256: digest,
   source: sourceV2,
+  plan_id: uuid.nullable(),
+  plan_sha256: digest.nullable(),
   generation: z.number().int().nonnegative(),
   cancel_epoch: z.number().int().nonnegative(),
   phase: jobPhase,
   started_at: iso,
   deadline_at: iso,
   active_run_id: uuid.nullable(),
+  stage_runs: z.array(stageRun).max(8),
+  model_calls: z.number().int().min(0).max(4),
+  evidence_calls: z.number().int().min(0).max(2),
+  validation_calls: z.number().int().min(0).max(2),
   candidate_id: uuid.nullable(),
+  report_id: uuid.nullable(),
   publication_id: uuid.nullable(),
   error: error.nullable(),
+  clarification: clarification.nullable(),
+  accepted_answer_id: uuid.nullable(),
 });
 export type JobV2 = z.infer<typeof jobV2>;
 
@@ -74,13 +96,30 @@ const journalEntry = z.strictObject({
   terminal_code: z.string().max(64).nullable(),
   publication_id: uuid.nullable(),
 });
+const acceptedAnswer = z.strictObject({
+  answer_id: uuid,
+  source: sourceV2,
+  text: z.string().max(1024),
+  evidence_ids: z.array(uuid).max(16),
+  accepted_at: iso,
+});
+const acceptedMemory = z.strictObject({
+  answer_id: uuid,
+  source: sourceV2,
+  summary: z.string().max(4096),
+  plan_sha256: digest,
+  report_sha256: digest,
+  accepted_at: iso,
+});
 export const sessionStateV2 = z.strictObject({
   version: z.literal("2"),
   revision: z.number().int().nonnegative(),
   selected_source: sourceV2.nullable(),
-  selected_catalog_revision: z.literal("m3-catalog.v1").nullable(),
+  selected_catalog_revision: z.literal("m4-catalog.v1").nullable(),
   history: z.array(historyEntry).max(12),
-  accepted_answers: z.array(historyEntry).max(4),
+  accepted_answers: z.array(acceptedAnswer).max(4),
+  accepted_memory: z.array(acceptedMemory).max(4),
+  dropped_history: z.number().int().nonnegative(),
   active_job: jobV2.nullable(),
   expires_at: iso,
   generation: z.number().int().nonnegative(),
@@ -112,9 +151,11 @@ export function initialSessionState(now = new Date()): SessionStateV2 {
     version: "2",
     revision: 0,
     selected_source: SALES_SOURCE,
-    selected_catalog_revision: "m3-catalog.v1",
+    selected_catalog_revision: "m4-catalog.v1",
     history: [],
     accepted_answers: [],
+    accepted_memory: [],
+    dropped_history: 0,
     active_job: null,
     expires_at: new Date(now.getTime() + 7 * 86_400_000).toISOString(),
     generation: 0,
@@ -131,12 +172,16 @@ export function parseSessionState(value: unknown): SessionStateV2 {
 
 export function selectSource(state: SessionStateV2, source: SourceV2): SessionStateV2 {
   sourceV2.parse(source);
+  const nextEpoch = state.cancel_epoch + 1;
+  const fencedJob = state.active_job
+    ? { ...state.active_job, phase: "cancel_requested" as const, cancel_epoch: nextEpoch }
+    : null;
   return parseSessionState({
     ...state,
     selected_source: source,
-    active_job: null,
+    active_job: fencedJob,
     generation: state.generation + 1,
-    cancel_epoch: state.cancel_epoch + 1,
+    cancel_epoch: nextEpoch,
     revision: state.revision + 1,
   });
 }
@@ -182,10 +227,11 @@ export function storeJob(state: SessionStateV2, job: JobV2): SessionStateV2 {
 
 export function cancelJob(state: SessionStateV2): SessionStateV2 {
   if (state.active_job === null) return state;
+  const nextEpoch = state.cancel_epoch + 1;
   return parseSessionState({
     ...state,
-    active_job: { ...state.active_job, phase: "cancel_requested" },
-    cancel_epoch: state.cancel_epoch + 1,
+    active_job: { ...state.active_job, phase: "cancel_requested", cancel_epoch: nextEpoch },
+    cancel_epoch: nextEpoch,
     revision: state.revision + 1,
   });
 }
