@@ -25,6 +25,9 @@ receipt. Support search is targeted lexical evidence with exact IDs and quotes;
 it does not establish corpus prevalence or absence.
 
 The private binding in Wrangler points to the existing `172x-data-intel-m2-tools`
-Worker for preview verification. Workers AI planning, separate candidate and
+Worker for preview verification. Before a deployed app publish, replace the
+empty `TOOLS_BUILD_REVISION` and `TOOLS_WORKER_VERSION_ID` vars with the exact
+private tools Worker build revision and version-metadata UUID; blank values fail
+closed. Workers AI planning, separate candidate and
 Validator calls, publication, and browser chat are the next application slice;
 this package does not deploy or enable paid billing.
