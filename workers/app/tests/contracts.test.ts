@@ -174,6 +174,7 @@ describe("app contract foundation", () => {
     expect(dataProfileV2.safeParse({ ...profile, analytical_validated: true }).success).toBe(false);
     expect(dataProfileV2.safeParse({ ...profile, measures: [{ field: "units", unit: "net_units",
       count: 1, min: "01", max: "1", sum: "1", exact: true }] }).success).toBe(false);
+    expect(dataProfileV2.safeParse({ ...profile, range_start: "0000-01-01" }).success).toBe(false);
   });
   it("enforces typed query cells and targeted search receipt invariants", async () => {
     const query = {
@@ -222,6 +223,10 @@ describe("app contract foundation", () => {
     const tamperedQuery = { ...query, sql_sha256: "0".repeat(64) };
     await expect(validatedDomainEnvelope("query", {
       ...catalogEnvelope, payload: tamperedQuery, payload_sha256: await payloadSha256(tamperedQuery),
+    })).rejects.toThrow("invalid_result");
+    const mismatchedRuntime = { ...query, runtime: { ...query.runtime, sqlite_version: "3.99.0" } };
+    await expect(validatedDomainEnvelope("query", {
+      ...catalogEnvelope, payload: mismatchedRuntime, payload_sha256: await payloadSha256(mismatchedRuntime),
     })).rejects.toThrow("invalid_result");
     await expect(validatedDomainEnvelope("catalog", {
       ...catalogEnvelope, job_id: null, run_id: null, receipt_id: null,

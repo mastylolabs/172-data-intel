@@ -33,7 +33,8 @@ const sourceSupport = z.strictObject({
 });
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
   const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  return !value.startsWith("0000") && Number.isFinite(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value;
 });
 const labelValue = (maximum: number): z.ZodType<string> => wireString(maximum).refine((value) =>
   value.trim() === value && value.trim().length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value));
@@ -217,6 +218,15 @@ export async function validatedDomainEnvelope(kind: DomainKind, value: unknown):
     throw new SafeError("invalid_result");
   }
   if (kind === "query") {
+    const query = envelope.payload as QueryResultV2;
+    const common = envelope.runtime;
+    if (query.runtime.python_version !== common.python_version ||
+      query.runtime.sqlite_version !== common.sqlite_version ||
+      query.runtime.runtime_mode !== common.runtime_mode ||
+      query.runtime.build_revision !== common.build_revision ||
+      query.runtime.worker_version_id !== common.worker_version_id) {
+      throw new SafeError("invalid_result");
+    }
     await validatedQueryResultV2(envelope.payload);
   }
   return envelope;
