@@ -10,7 +10,7 @@ M3-P4b is complete and merged in [PR #37](https://github.com/mastylolabs/172-dat
 - Independent QA PASS: local receipt `.git/172x/m3-p4b-qa.md` (not committed; implementation/provider evidence is on [PR #37](https://github.com/mastylolabs/172-data-intel/pull/37)). Fresh detached gate passed 571 Python tests and 40 Vitest tests, strict mypy, Ruff/format, TypeScript and Radon A (average 3.0204; all functions A/B).
 - Independent review PASS: local receipt `.git/172x/m3-p4b-review.md` (not committed); the initial warning-leak finding and corrected-head verification are recorded there. Provider approval and guarded merge are on [PR #37](https://github.com/mastylolabs/172-data-intel/pull/37).
 - New search execution coverage: 100% (92/92 statements, 36/36 branches). Combined QA coverage is 95.0095%; existing service/build/FFI gaps remain.
-- Independent QA ran 1,280 oracle combinations covering character/token behavior, IDs, quotes, scores, counts, order, filters, ties, deadlines, identity and result limits. Corrected-head QA also ran six malformed copied-request variants with zero warnings, zero stderr, no raw sentinel and no loader I/O.
+- Independent QA ran 1,280 oracle combinations covering character/token behavior, IDs, quotes, scores, counts, order, filters, date intervals and max-hit behavior. Separate QA cases covered ties, deadlines, identity and result limits; corrected-head QA also ran six malformed copied-request variants with zero warnings, zero stderr, no raw sentinel and no loader I/O.
 - Scope count: 388 handwritten changed lines and 29 prose lines excluded under AGENTS.md. No service route, model/UI, dependency or deployment change.
 
 ## Problems and limits
