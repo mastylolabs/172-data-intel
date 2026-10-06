@@ -120,6 +120,12 @@ class _FailedReader(_Reader):
         raise JsException("private runtime failure")
 
 
+class _GetBodyFailure(SimpleNamespace):
+    @property
+    def body(self) -> object:
+        raise JsException("GET body unavailable")
+
+
 def test_worker_maps_ffi_stream_failure_to_safe_transport_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -156,7 +162,7 @@ def test_worker_dispatches_private_v2_tools_with_endpoint_caps(
         ).encode()
 
     catalog = asyncio.run(
-        worker.fetch(SimpleNamespace(method="GET", url="https://tools/v2/catalog"))
+        worker.fetch(_GetBodyFailure(method="GET", url="https://tools/v2/catalog"))
     )
     assert catalog.status == 200
     profile = asyncio.run(
