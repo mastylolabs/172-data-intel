@@ -45,9 +45,16 @@ function parseBridgeState(value: unknown): BridgeState {
   try {
     const result = raw.result === null ? null : raw.result as Envelope<unknown>;
     const kind = raw.result_kind === null ? null : raw.result_kind as ResultKind;
-    if (result !== null && !["profile", "query", "search"].includes(String(kind))) throw new Error("kind");
+    if ((result === null) !== (kind === null) || (result !== null && !["profile", "query", "search"].includes(String(kind)))) throw new Error("kind");
     const outcomes = Array.isArray(raw.outcomes) ? raw.outcomes : [];
-    if (outcomes.length > 2 || outcomes.some((item) => typeof item !== "object" || item === null)) throw new Error("outcomes");
+    if (outcomes.length > 2 || outcomes.some((item) => {
+      if (typeof item !== "object" || item === null) return true;
+      const outcome = item as Record<string, unknown>;
+      const snapshot = outcome.snapshot;
+      return typeof outcome.request_id !== "string" || typeof outcome.input_sha256 !== "string" ||
+        !["profile", "query", "search"].includes(String(outcome.kind)) ||
+        typeof snapshot !== "object" || snapshot === null || Array.isArray(snapshot);
+    })) throw new Error("outcomes");
     if (new TextEncoder().encode(JSON.stringify({ result, outcomes })).byteLength > 65_536) throw new Error("limit");
     return { version: "1", session: parseSessionState(raw.session), result, result_kind: kind,
       revoked: raw.revoked, expired: raw.expired, outcomes: outcomes as Outcome[] };
@@ -111,6 +118,16 @@ function trustedRuntime(env: Env, receipt: Envelope<unknown>): boolean {
 function sameSource(left: Source, right: Source): boolean {
   return left.source_id === right.source_id && left.snapshot_sha256 === right.snapshot_sha256 && left.meaning_revision === right.meaning_revision;
 }
+function reconcileDeadline(state: BridgeState): BridgeState {
+  const active = state.session.active_job;
+  if (active === null || ["completed", "failed", "interrupted", "cancelled", "budget_exhausted"].includes(active.phase) ||
+    Date.parse(active.deadline_at) > Date.now()) return state;
+  try {
+    const session = finishJob(state.session, active.job_id, active.generation, active.cancel_epoch,
+      { phase: "interrupted", error: { code: "stale_job", stage: "transport" } });
+    return { ...state, session, result: null, result_kind: null };
+  } catch { return state; }
+}
 
 export class AppAgent extends Agent<Env, BridgeState> {
   initialState = initialBridgeState();
@@ -168,13 +185,15 @@ export class AppAgent extends Agent<Env, BridgeState> {
     this.busy = true;
     try {
       const path = new URL(request.url).pathname;
-      const state = await validState(this);
+      let state = await validState(this);
       if (state.revoked) throw new BridgeError("access_denied", 403);
       if (state.expired && path !== "/api/reset") throw new BridgeError("session_expired", 410);
       if (Date.parse(state.session.expires_at) <= Date.now() && path !== "/api/reset") {
         this.setState({ ...state, session: expiredSession(state.session), result: null, result_kind: null, expired: true });
         throw new BridgeError("session_expired", 410);
       }
+      const reconciled = reconcileDeadline(state);
+      if (reconciled !== state) { this.setState(reconciled); state = reconciled; }
       if (path === "/api/state" && request.method === "GET") return json(publicState(state));
       if (path === "/api/reset" && request.method === "POST") {
         emptyBody.parse(await readJson(request, 1024));
