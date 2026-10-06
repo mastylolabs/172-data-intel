@@ -68,6 +68,15 @@ def test_profile_route_refuses_support_and_mutated_source() -> None:
     assert status == 409 and json.loads(body)["code"] == "source_mismatch"
 
 
+def test_profile_route_rejects_unknown_source_enum_as_invalid_input() -> None:
+    from data_intel.sales_demo import DEMO_SOURCE
+
+    wire = json.loads(_request(DEMO_SOURCE))
+    wire["source"]["source_id"] = "other"
+    status, body = handle_service_v2("POST", "/v2/profile", json.dumps(wire).encode(), _runtime())
+    assert status == 400 and json.loads(body)["code"] == "invalid_input"
+
+
 @pytest.mark.parametrize(
     "method,path,body,status",
     [
