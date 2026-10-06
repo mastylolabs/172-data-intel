@@ -10,7 +10,7 @@ import { PLANNER_MODEL } from "./model_gateway";
 
 const VALIDATOR_INPUT_BYTES = 40_960;
 const VALIDATOR_OUTPUT_BYTES = 8_192;
-const VALIDATOR_MAX_TOKENS = 256;
+const VALIDATOR_MAX_TOKENS = 512;
 const timestamp = (): string => new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(".000Z", "Z");
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const meanings = z.strictObject({ catalog: catalogV2.nullable(), profile: dataProfileV2.nullable() });

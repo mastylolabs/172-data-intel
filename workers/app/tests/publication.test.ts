@@ -59,7 +59,9 @@ describe("bounded publication", () => {
   it("bounds and validates the separate Validator response", async () => {
     const receipt = await searchEnvelope([]); const built = buildPublication(proposal, receipt)!;
     let received: unknown;
-    const AI = { run: async (_model: string, input: { messages: { content: string }[] }) => {
+    let maxTokens = 0;
+    const AI = { run: async (_model: string, input: { messages: { content: string }[]; max_tokens: number }) => {
+      maxTokens = input.max_tokens;
       received = JSON.parse(input.messages[1].content);
       const candidate = JSON.parse(input.messages[1].content).candidate as unknown;
       const body = JSON.parse(input.messages[1].content) as { execution_receipt: Envelope<unknown>; proposal: unknown; validator_input_sha256: string };
@@ -69,6 +71,7 @@ describe("bounded publication", () => {
     expect((await runValidator({ AI: AI as never }, { question: "find export", proposal, meanings: { catalog: null, profile: null }, context: built.context, execution: evidence.execution,
       candidate: built.candidate, deterministic: { ok: true, issues: [] }, job_id: id, run_id: id, source: support }))?.overall).toBe("pass");
     expect(received).toMatchObject({ version: "1", question: "find export", proposal, meanings: { catalog: null, profile: null }, evidence_context: built.context, execution_receipt: evidence.execution, candidate: built.candidate, candidate_sha256: await payloadSha256(built.candidate), validator_input_sha256: expect.any(String), deterministic_check: { ok: true, issues: [] } });
+    expect(maxTokens).toBe(512);
   });
   it("rejects a proposal source that differs from the receipt", async () => {
     const receipt = await searchEnvelope([hit()]);
